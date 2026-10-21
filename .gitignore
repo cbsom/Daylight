@@ -1,0 +1,88 @@
+# ==============================================================================
+# CMake Build Artifacts
+# ==============================================================================
+# Ignore the default and common build directories
+[Bb]uild/
+build-*/
+/out/
+/bin/
+work/Qt/
+
+# Ignore CMake cache and generated configuration files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+Makefile
+_deps/
+
+# ==============================================================================
+# C++ Compiler Outputs & Libraries
+# ==============================================================================
+# Compiled Object files
+*.o
+*.obj
+*.gch
+*.pch
+
+# Static and Dynamic Libraries
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug symbols and databases
+*.pdb
+*.ilk
+*.dSYM/
+*.dwo
+
+# Dependency files
+*.d
+
+# ==============================================================================
+# Package Managers & Dependencies
+# ==============================================================================
+vcpkg_installed/
+.vcpkg-root
+
+# ==============================================================================
+# IDEs and Text Editors
+# ==============================================================================
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Visual Studio
+.vs/
+[Dd]ebug/
+[Rr]elease/
+*.suo
+*.user
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# JetBrains CLion / Idea
+.idea/
+cmake-build-*/
+
+# Qt Creator
+CMakeLists.txt.user*
+
+# Operating System Files
+.DS_Store
+Thumbs.db
