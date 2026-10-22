@@ -4,7 +4,7 @@ import QtQuick.Window
 Window {
     id: window
     width: 1280
-    height: 720
+    height: width / 2 + 32
     minimumWidth: 720
     minimumHeight: 420
     visible: true
@@ -13,10 +13,8 @@ Window {
 
     Item {
         id: map
-        width: Math.min(parent.width - 32, (parent.height - 52) * 2)
-        height: width / 2
-        anchors.centerIn: parent
-        anchors.verticalCenterOffset: -6
+        width: parent.width
+        height: width / 2        
         clip: true
 
         Image {
@@ -60,13 +58,7 @@ Window {
                     smooth: true
                 }
             }
-        }
-        Rectangle {
-            anchors.fill: parent
-            color: "transparent"
-            border.color: "#2c2c2c"
-            border.width: 1
-        }
+        }        
     }
     Text {
         anchors.top: map.bottom

@@ -12,6 +12,6 @@ if(WIN32)
     target_sources(Daylight PRIVATE app.rc)
 endif()
 qt_add_qml_module(Daylight URI Daylight VERSION 1.0 QML_FILES Main.qml
-    RESOURCES assets/world.jpg assets/moon-full.jpg assets/daylight.ico)
+    RESOURCES assets/world_changed.jpg assets/moon-full.jpg assets/daylight.ico)
 target_link_libraries(Daylight PRIVATE Qt6::Quick)
 install(TARGETS Daylight RUNTIME DESTINATION .)

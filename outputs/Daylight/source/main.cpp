@@ -149,7 +149,7 @@ QImage sunImage() {
     return image;
 }
 QImage dayImage() {
-    QImage image(":/qt/qml/Daylight/assets/world.jpg");
+    QImage image(":/qt/qml/Daylight/assets/world_changed.jpg");
     image=image.convertToFormat(QImage::Format_RGB32);
     int lift[256];
     for(int i=0;i<256;++i) lift[i]=qRound(255*std::min(1.0,1.10*std::pow(i/255.0,.55)));

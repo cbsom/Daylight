@@ -1,20 +1,27 @@
-# ==============================================================================
-# CMake Build Artifacts
-# ==============================================================================
-# Ignore the default and common build directories
+# Generated builds (source lives under outputs/Daylight/source).
 [Bb]uild/
 build-*/
+cmake-build-*/
 /out/
 /bin/
-work/
-work/Qt/
+[Dd]ebug/
+[Rr]elease/
 
-# Ignore generated release artifacts and installer logs
-outputs/Daylight-Windows.zip
-outputs/Daylight/app/
-aqtinstall.log
+# Local SDKs, downloaded tools, scratch files and test captures.
+# Keep the small scripts needed to reproduce this project's build/setup.
+/work/*
+!/work/build.cmd
+!/work/deploy.cmd
+!/work/make-icon.cmd
+!/work/install_qt.py
 
-# Ignore CMake cache and generated configuration files
+# Packaged binaries and generated previews; preserve source and documentation.
+/outputs/Daylight-Windows*.zip
+/outputs/Daylight/app/
+/outputs/Daylight/preview.png
+/outputs/Daylight/VALIDATION.md
+
+# CMake-generated state. Shared CMakePresets.json remains trackable.
 CMakeCache.txt
 CMakeFiles/
 CMakeScripts/
@@ -23,72 +30,69 @@ cmake_install.cmake
 install_manifest.txt
 compile_commands.json
 CTestTestfile.cmake
-Makefile
+Testing/
 _deps/
+Makefile
+build.ninja
+rules.ninja
+.ninja_deps
+.ninja_log
+.qt/
+.rcc/
+*_autogen/
 
-# ==============================================================================
-# C++ Compiler Outputs & Libraries
-# ==============================================================================
-# Compiled Object files
+# Compiler, linker and runtime output.
 *.o
 *.obj
 *.gch
 *.pch
-
-# Static and Dynamic Libraries
 *.a
 *.lib
 *.so
 *.so.*
 *.dylib
 *.dll
-
-# Executables
 *.exe
 *.out
 *.app
-
-# Debug symbols and databases
 *.pdb
 *.ilk
+*.exp
+*.idb
+*.ipch
+*.res
+*.tlog
 *.dSYM/
 *.dwo
-
-# Dependency files
 *.d
 
-# ==============================================================================
-# Package Managers & Dependencies
-# ==============================================================================
+# Local dependency installations and Python caches.
 vcpkg_installed/
-.vcpkg-root
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
-# ==============================================================================
-# IDEs and Text Editors
-# ==============================================================================
-# Visual Studio Code
-.vscode/
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-
-# Visual Studio
+# Track useful editor configuration; ignore local IDE state.
+**/.vscode/*
+!**/.vscode/settings.json
+!**/.vscode/tasks.json
+!**/.vscode/launch.json
+!**/.vscode/extensions.json
 .vs/
-[Dd]ebug/
-[Rr]elease/
+.idea/
 *.suo
 *.user
-*.sln
-*.vcxproj
-*.vcxproj.filters
-
-# JetBrains CLion / Idea
-.idea/
-cmake-build-*/
-
-# Qt Creator
 CMakeLists.txt.user*
 
-# Operating System Files
+# Logs, editor backups and operating-system metadata.
+*.log
+*.tmp
+*.bak
+*~
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Do not ignore source files, vendor/astronomy.*, image assets, app.rc,
+# CMakeLists.txt, source/build.cmd, shared presets, READMEs or license notices.
