@@ -10,7 +10,8 @@ work/
 work/Qt/
 
 # Ignore generated release artifacts and installer logs
-outputs/
+outputs/Daylight-Windows.zip
+outputs/Daylight/app/
 aqtinstall.log
 
 # Ignore CMake cache and generated configuration files
