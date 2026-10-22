@@ -6,7 +6,12 @@
 build-*/
 /out/
 /bin/
+work/
 work/Qt/
+
+# Ignore generated release artifacts and installer logs
+outputs/
+aqtinstall.log
 
 # Ignore CMake cache and generated configuration files
 CMakeCache.txt
