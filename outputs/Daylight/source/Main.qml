@@ -64,7 +64,7 @@ Window {
         Rectangle {
             anchors.fill: parent
             color: "transparent"
-            border.color: "#385364"
+            border.color: "#2c2c2c"
             border.width: 1
         }
     }
