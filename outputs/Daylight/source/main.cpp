@@ -11,6 +11,9 @@
 #include <QFile>
 #include <QDebug>
 #include <QIcon>
+#include <QVariantList>
+#include <QSettings>
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include "vendor/astronomy.h"
@@ -23,7 +26,13 @@ double smooth(double a, double b, double x) {
     return t*t*(3.0-2.0*t);
 }
 struct Position { double lat, lon; };
+#include "zodiac.h"
+struct BodyPosition { Position point; double distance; };
+constexpr std::array<astro_body_t,7> bodies={BODY_SUN,BODY_MOON,BODY_MERCURY,BODY_VENUS,BODY_MARS,BODY_JUPITER,BODY_SATURN};
+const std::array<const char*,7> bodyNames={"Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn"};
 struct Ephemeris {
+    ZodiacFrame zodiac;
+    std::array<BodyPosition,7> bodies;
     Position sun, moon;
     double fraction, phase;
 };
@@ -35,12 +44,17 @@ Ephemeris calculate(QDateTime date) {
         auto vec = Astronomy_GeoVector(body,t,ABERRATION);
         auto eq = Astronomy_EquatorFromVector(Astronomy_RotateVector(rotation,vec));
         if (eq.status != ASTRO_SUCCESS) qFatal("Astronomical calculation failed");
-        return Position{eq.dec, wrap(15*(eq.ra-Astronomy_SiderealTime(&t)))};
+        return BodyPosition{{eq.dec, wrap(15*(eq.ra-Astronomy_SiderealTime(&t)))},eq.dist};
     };
     auto illum = Astronomy_Illumination(BODY_MOON,t);
     auto phase = Astronomy_MoonPhase(t);
     if (illum.status != ASTRO_SUCCESS || phase.status != ASTRO_SUCCESS) qFatal("Moon calculation failed");
-    return {position(BODY_SUN), position(BODY_MOON), illum.phase_fraction,phase.angle};
+    Ephemeris result{};
+    result.zodiac=calculateZodiac(t);
+    for(size_t i=0;i<bodies.size();++i) result.bodies[i]=position(bodies[i]);
+    result.sun=result.bodies[0].point; result.moon=result.bodies[1].point;
+    result.fraction=illum.phase_fraction; result.phase=phase.angle;
+    return result;
 }
 double altitudeSine(double lat,double lon,Position sun) {
     return std::sin(rad(lat))*std::sin(rad(sun.lat)) +
@@ -148,6 +162,34 @@ QImage sunImage() {
     p.setPen(QPen(QColor("#fff1c9"),1)); p.setBrush(disk); p.drawEllipse(QPointF(32,32),26,26);
     return image;
 }
+// Stylized disks remain recognizable at map-marker sizes.
+QImage planetImage(int index) {
+    QImage image(96,96,QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    QPainter p(&image); p.setRenderHint(QPainter::Antialiasing);
+    const QColor colors[]={QColor("#aaa39b"),QColor("#edcf91"),QColor("#ce7752"),QColor("#d7b895"),QColor("#dccb93")};
+    QColor color=colors[index-2];
+    if(index==6) {
+        p.setPen(QPen(QColor("#b7a77f"),7));
+        p.drawEllipse(QPointF(48,48),43,14);
+    }
+    QRadialGradient disk(37,34,48);
+    disk.setColorAt(0,color.lighter(125)); disk.setColorAt(1,color.darker(175));
+    p.setPen(QPen(color.lighter(115),1)); p.setBrush(disk);
+    QPainterPath outline; outline.addEllipse(QPointF(48,48),29,29);
+    p.drawPath(outline);
+    p.save(); p.setClipPath(outline);
+    if(index==5 || index==6) {
+        p.setPen(QPen(color.darker(125),5));
+        for(int y : {35,47,61}) p.drawLine(18,y,78,y+3);
+    }
+    p.restore();
+    if(index==6) {
+        p.setBrush(Qt::NoBrush); p.setPen(QPen(QColor("#d9c99d"),6));
+        p.drawArc(QRectF(5,34,86,28),180*16,180*16);
+    }
+    return image;
+}
 QImage dayImage() {
     QImage image(":/qt/qml/Daylight/assets/world_changed.jpg");
     image=image.convertToFormat(QImage::Format_RGB32);
@@ -168,13 +210,36 @@ class Sky : public QObject {
     Q_PROPERTY(double moonX READ moonX NOTIFY changed)
     Q_PROPERTY(double moonY READ moonY NOTIFY changed)
     Q_PROPERTY(int revision READ revision NOTIFY changed)
+    Q_PROPERTY(QVariantList markers READ markers NOTIFY changed)
+    QSettings settings{"Daylight","Daylight"};
 public:
+    Q_INVOKABLE bool layerVisible(const QString& key) const {
+        return settings.value("visibility/"+key,true).toBool();
+    }
+    Q_INVOKABLE void setLayerVisible(const QString& key,bool visible) {
+        settings.setValue("visibility/"+key,visible);
+        settings.sync();
+        if(settings.status()!=QSettings::NoError) qWarning()<<"Could not save visibility settings";
+    }
     Ephemeris e; QImage day=dayImage(),night,moon,sun=sunImage(); int version=0;
     void refresh() { e=calculate(QDateTime::currentDateTimeUtc()); night=nightImage(e.sun); moon=moonImage(e.fraction,e.phase); ++version; emit changed(); }
     double sunX() const { return (e.sun.lon+180)/360; }
     double sunY() const { return (90-e.sun.lat)/180; }
     double moonX() const { return (e.moon.lon+180)/360; }
     double moonY() const { return (90-e.moon.lat)/180; }
+    QVariantList markers() const {
+        QVariantList result;
+        std::array<int,7> order={0,1,2,3,4,5,6};
+        std::sort(order.begin(),order.end(),[&](int a,int b){return e.bodies[a].distance>e.bodies[b].distance;});
+        const int sizes[]={28,29,12,15,14,20,25};
+        for(int i : order) {
+            const auto& body=e.bodies[i];
+            result.append(QVariantMap{{"name",QString::fromLatin1(bodyNames[i])},
+                {"x",(body.point.lon+180)/360},{"y",(90-body.point.lat)/180},
+                {"size",sizes[i]},{"image",i==0?QString("sun"):i==1?QString("moon/")+QString::number(version):QString("planet/")+QString::number(i)}});
+        }
+        return result;
+    }
     int revision() const { return version; }
 signals: void changed();
 };
@@ -182,8 +247,13 @@ class Images : public QQuickImageProvider {
     Sky* sky;
 public:
     Images(Sky* s):QQuickImageProvider(QQuickImageProvider::Image),sky(s) {}
-    QImage requestImage(const QString &id,QSize *size,const QSize&) override {
-        QImage image=id.startsWith("day")?sky->day:id.startsWith("night")?sky->night:id.startsWith("moon")?sky->moon:sky->sun;
+    QImage requestImage(const QString &id,QSize *size,const QSize& requestedSize) override {
+        if(id.startsWith("zodiac")) {
+            auto image=zodiacImage(sky->e.zodiac,requestedSize.isValid()?requestedSize:QSize(1280,640),!id.contains("/no-labels/"));
+            if(size) *size=image.size();
+            return image;
+        }
+        QImage image=id.startsWith("planet/")?planetImage(id.section('/',1,1).toInt()):id.startsWith("day")?sky->day:id.startsWith("night")?sky->night:id.startsWith("moon")?sky->moon:sky->sun;
         if(size) *size=image.size(); return image;
     }
 };
@@ -196,8 +266,46 @@ bool selfTest() {
     auto fullMoon=calculate(date("2024-03-25T07:00:00Z"));
     bool ok=std::abs(equinox.sun.lat)<.1 && june.sun.lat>23.3 && june.sun.lat<23.5 && december.sun.lat< -23.3;
     ok=ok && newMoon.fraction<.001 && fullMoon.fraction>.999;
+    for(const auto& sample : {equinox,june,december,newMoon,fullMoon}) {
+        for(const auto& body : sample.bodies)
+            ok=ok && std::isfinite(body.point.lat) && std::isfinite(body.point.lon) &&
+                std::abs(body.point.lat)<=90 && body.point.lon>=-180 && body.point.lon<180 && body.distance>0;
+        ok=ok && sample.bodies[1].distance<sample.bodies[0].distance &&
+            sample.bodies[5].distance>sample.bodies[0].distance && sample.bodies[6].distance>sample.bodies[5].distance;
+    }
+    // Catalog integrity, Earth rotation, true ecliptic, and date-line geometry.
+    for(const auto& figure : zodiacCatalog())
+        for(const auto& star : figure.stars)
+            ok=ok && std::isfinite(star.ra) && std::isfinite(star.dec) &&
+                std::abs(star.ra)<=180 && std::abs(star.dec)<=90 && std::isfinite(star.magnitude);
+    auto sixHoursLater=calculate(date("2026-03-20T20:46:00Z"));
+    for(size_t i=0;i<equinox.zodiac.figures.size();++i) {
+        const auto& before=equinox.zodiac.figures[i];
+        const auto& after=sixHoursLater.zodiac.figures[i];
+        for(size_t j=0;j<before.size();++j)
+            ok=ok && std::abs(wrap(after[j].lon-before[j].lon)+90.2464)<.02 &&
+                std::abs(after[j].lat-before[j].lat)<.001;
+    }
+    for(const auto& sample : {equinox,june,december}) {
+        double maxDeclination=0,nearestSun=-1;
+        for(const auto& point : sample.zodiac.ecliptic) {
+            maxDeclination=std::max(maxDeclination,std::abs(point.lat));
+            nearestSun=std::max(nearestSun,altitudeSine(point.lat,point.lon,sample.sun));
+        }
+        ok=ok && maxDeclination>23.3 && maxDeclination<23.5 && nearestSun>std::cos(rad(.3));
+        const auto& start=sample.zodiac.ecliptic.front(); const auto& end=sample.zodiac.ecliptic.back();
+        ok=ok && std::abs(start.lat-end.lat)<1e-10 && std::abs(wrap(start.lon-end.lon))<1e-10;
+    }
+    QImage seam(360,180,QImage::Format_ARGB32_Premultiplied); seam.fill(Qt::transparent);
+    {
+        QPainter painter(&seam); painter.setPen(QPen(Qt::white,1));
+        drawWrappedSegment(painter,seam.size(),{0,179},{0,-179});
+    }
+    ok=ok && qAlpha(seam.pixel(0,90))>0 && qAlpha(seam.pixel(359,90))>0 && qAlpha(seam.pixel(180,90))==0;
+    auto midpoint=interpolateSky({0,179},{0,-179},.5);
+    ok=ok && std::abs(std::abs(midpoint.lon)-180)<1e-10 && std::abs(midpoint.lat)<1e-10;
     auto night=nightImage({0,0});
-    ok=ok && qAlpha(night.pixel(900,450))<2 && qAlpha(night.pixel(0,450))>200;
+    ok=ok && qAlpha(night.pixel(900,450))<2 && qAlpha(night.pixel(0,450))>=190;
     ok=ok && std::abs(altitudeSine(0,90,{0,0}))<1e-10;
     auto dark=moonImage(0,0),full=moonImage(1,180),wax=moonImage(.5,90),wane=moonImage(.5,270);
     ok=ok && qRed(full.pixel(80,80))>50 && qRed(dark.pixel(80,80))<30;
@@ -208,7 +316,7 @@ bool selfTest() {
             ok=ok && std::abs(altitudeSine(p.lat,p.lon,sun)-std::sin(rad(visibleSunAltitude)))<1e-10;
         }
     }
-    qInfo()<<"Astronomy, twilight and lunar phase tests:"<<(ok?"PASS":"FAIL");
+    qInfo()<<"Astronomy, twilight, lunar phase and zodiac tests:"<<(ok?"PASS":"FAIL");
     return ok;
 }
 int main(int argc,char**argv) {
@@ -231,7 +339,8 @@ int main(int argc,char**argv) {
     int capture=app.arguments().indexOf("--capture");
     if(capture>=0 && capture+1<app.arguments().size()) {
         QString path=app.arguments().at(capture+1);
-        QTimer::singleShot(0,&app,[window,path,&app,&startup]{
+        // Allow the first layout and scene-graph frame before grabbing the window.
+        QTimer::singleShot(250,&app,[window,path,&app,&startup]{
             bool ok=window->grabWindow().save(path);
             qInfo()<<"Launch to captured render (including PNG save):"<<startup.elapsed()<<"ms";
             qInfo()<<"Capture:"<<ok; app.exit(ok?0:2);

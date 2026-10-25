@@ -11,9 +11,12 @@ The application is built with **C++17 and Qt Quick/QML**. It runs locally, works
 - High-resolution, flat world map with north at the top.
 - Live daylight and night shading, with a gradual twilight transition.
 - A thin, subdued sunrise/sunset boundary.
-- Current Sun and Moon positions over Earth.
+- Current Sun, Moon, Mercury, Venus, Mars, Jupiter, and Saturn positions over Earth.
+- Stylized planet markers, with overlapping bodies drawn in Earth-distance order (nearest in front).
+- Twelve zodiac constellations at their natural angular sizes, with faint stars, grey connections, and small labels.
+- A subtle continuous ecliptic line. All star data is embedded for offline use.
 - Photographic Moon with a calculated phase shadow and a fixed orientation.
-- A simple window with a small footer and no clock or time controls.
+- A compact footer with switches for the Sun, Moon, planets, constellations, and labels, with no clock or time controls.
 - A half-day, half-night Earth icon for the executable and application window.
 
 ## Run a packaged copy
@@ -111,6 +114,8 @@ outputs/Daylight/
     CMakeLists.txt        Build configuration and embedded resources
     Main.qml              Window layout, marker sizes, and footer
     main.cpp              Astronomy, twilight shading, and image rendering
+    zodiac.h              Zodiac coordinates, projection, and subtle sky overlay
+    data/                 Embedded zodiac catalog and its license
     app.rc                Embedded Windows executable icon
     build.cmd             Windows build and deployment helper
     assets/
@@ -134,7 +139,9 @@ Generated builds, packaged binaries, and downloaded SDKs do not need to be commi
 
 ## Customize the appearance
 
-Edit [Main.qml](outputs/Daylight/source/Main.qml) to change the initial window size, footer, and Sun/Moon marker sizes.
+The footer switches show or hide the Sun, Moon, all five planets, constellations (including the ecliptic), and all celestial labels independently. The chosen switch states are saved immediately using Qt settings and restored on the next launch; the first launch starts with everything visible. On Linux they are stored in `~/.config/Daylight/Daylight.conf` (or under `$XDG_CONFIG_HOME`); Windows uses the current user’s `Software\Daylight\Daylight` registry settings. Switches support mouse clicks, Tab navigation, and Space or Enter. Hiding a body also hides its label; the Labels switch leaves stars and markers visible.
+
+Edit [Main.qml](outputs/Daylight/source/Main.qml) to change the initial window size, footer switches, and body-label appearance. Marker sizes are the `sizes` array in `Sky::markers()` in [main.cpp](outputs/Daylight/source/main.cpp); constellation styling and label size are in [zodiac.h](outputs/Daylight/source/zodiac.h).
 
 Edit [main.cpp](outputs/Daylight/source/main.cpp) to change:
 
@@ -149,7 +156,7 @@ Rebuild after changing C++, QML, or bundled assets.
 
 ## Developer checks
 
-The executable includes a self-test for seasonal solar declination, known new/full Moons, phase orientation, day/night shading, and horizon geometry:
+The executable includes a self-test for seasonal solar declination, known new/full Moons, phase orientation, day/night shading, horizon geometry, zodiac rotation, ecliptic alignment, and date-line wrapping:
 
 ```bat
 start "" /wait outputs\Daylight\app\Daylight.exe --self-test
@@ -164,11 +171,15 @@ start "" /wait outputs\Daylight\app\Daylight.exe --capture "%CD%\preview.png"
 
 ## How to read the map
 
-The map uses an equirectangular projection, with Greenwich at the center. The markers show the geocentric subsolar and sublunar points, rather than the areas where those bodies are visible. Their sizes are illustrative, not to scale.
+The map uses an equirectangular projection, with Greenwich at the center. The markers show the geocentric points directly beneath the Sun, Moon, and five naked-eye planets, rather than the areas where those bodies are visible. Planet positions use the same apparent geocentric calculation as the Sun and Moon and update every ten seconds. Mercury is gray, Venus cream, Mars rust-colored, Jupiter banded, and Saturn ringed. Where markers overlap, the nearer body covers the farther one, including overlaps with the Sun and Moon. Their sizes are illustrative, not to scale, so marker overlaps do not predict actual transits or occultations.
 
 The horizon line uses a conventional solar-center altitude of approximately **−0.833°**, accounting for the Sun's upper edge and typical horizon refraction. Shading begins at this line, increases through early twilight, and reaches full night at a geometric solar altitude of **−18°**. It is a visual representation rather than a prediction of local sky brightness. See [NOAA's sunrise/sunset calculation notes](https://gml.noaa.gov/grad/solcalc/solareqns.PDF).
 
 The Moon's illuminated fraction is calculated for the current time. Its photograph retains a fixed orientation, with waxing illumination on the right and waning illumination on the left. The display does not simulate lunar libration, eclipses, local atmospheric conditions, terrain obstruction, or light pollution.
+
+The twelve traditional zodiac constellations use bright-star stick figures from D3-Celestial, with XHIP-based J2000 coordinates. Each star is mapped individually to its geocentric point over Earth, corrected for precession, nutation, and annual aberration. Their natural angular sizes are preserved; the map projection can distort the familiar shapes. Stellar proper motion and individual stellar parallax are not modeled, so these are catalog-based positions suitable for this map rather than precision astrometry. The twelve traditional figures exclude Ophiuchus.
+
+The ecliptic is the true ecliptic of date, sampled around the complete circle and projected using the same sidereal rotation as the markers. Zodiac lines, stars, and labels are drawn behind all Solar System markers and remain faint at different window sizes. No network connection is used at runtime.
 
 The Earth image is based on a fixed NASA Blue Marble composite, not live satellite imagery. Accurate system time is important for the Sun and Moon positions.
 
@@ -176,6 +187,7 @@ The Earth image is based on a fixed NASA Blue Marble composite, not live satelli
 
 - **Earth imagery:** [NASA Earth Observatory, Blue Marble Next Generation with Topography](https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography/), October 2004. The application uses the project's modified `world_changed.jpg`; the original map is retained as `world.jpg`. The Earth icon is also derived from the map.
 - **Moon photograph:** [FullMoon2010.jpg by Gregory H. Revera](https://commons.wikimedia.org/wiki/File:FullMoon2010.jpg), licensed under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). The photograph is cropped, resized, and shaded at runtime. The adapted lunar imagery is also provided under CC BY-SA 3.0.
+- **Zodiac data:** [D3-Celestial by Olaf Frohn](https://github.com/ofrohn/d3-celestial), BSD-3-Clause. The embedded subset uses conventional constellation figures and XHIP-based star positions and magnitudes. Sources and extraction details are in [source/data/README.md](outputs/Daylight/source/data/README.md); retain the bundled license when distributing.
 - **Astronomical calculations:** [Astronomy Engine by Don Cross](https://github.com/cosinekitty/astronomy), MIT license. Its source and license are included in [source/vendor](outputs/Daylight/source/vendor/).
 - **User interface and rendering:** [Qt](https://www.qt.io/), dynamically linked. Qt and its dependencies retain their applicable licenses. Retain the relevant notices and license materials when distributing packaged builds.
 
