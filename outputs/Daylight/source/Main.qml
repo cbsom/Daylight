@@ -4,72 +4,83 @@ import QtQuick.Window
 Window {
     id: window
     width: 1280
-    height: width / 2 + 64
+    height: 752
     minimumWidth: 720
-    minimumHeight: 424
+    minimumHeight: 472
     visible: true
     title: "Daylight"
     color: "#080f18"
 
+    // Reserve the footer first; fit the 2:1 map inside the remaining area.
     Item {
-        id: map
-        width: parent.width
-        height: width / 2        
+        id: mapViewport
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: footer.top
         clip: true
 
-        Image {
-            anchors.fill: parent
-            source: "image://earth/day"
-            sourceSize.width: 5400
-            smooth: true
-        }
-        Image {
-            anchors.fill: parent
-            source: "image://earth/night/" + sky.revision
-            cache: false
-            smooth: true
-        }
-        Image {
-            anchors.fill: parent
-            visible: constellationsToggle.checked
-            source: "image://earth/zodiac/" + (labelsToggle.checked ? "labels/" : "no-labels/") + sky.revision
-            sourceSize.width: Math.max(1, Math.round(map.width))
-            sourceSize.height: Math.max(1, Math.round(map.height))
-            cache: false
-            smooth: true
-        }
-        // Farther bodies are created first, so nearer bodies cover them.
-        Repeater {
-            model: sky.markers
-            delegate: Item {
-                required property var modelData
-                readonly property var marker: modelData
-                visible: marker.name === "Sun" ? sunToggle.checked
-                         : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
+        Item {
+            id: map
+            anchors.centerIn: parent
+            width: Math.min(parent.width, parent.height * 2)
+            height: width / 2
+            clip: true
+
+            Image {
                 anchors.fill: parent
-                Repeater {
-                    model: [-1, 0, 1]
-                    delegate: Item {
-                        required property int modelData
-                        x: (marker.x + modelData) * map.width
-                        y: marker.y * map.height
-                        Image {
-                            anchors.centerIn: parent
-                            width: marker.size; height: marker.size
-                            source: "image://earth/" + marker.image
-                            cache: marker.name !== "Moon"
-                            smooth: true
-                        }
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            y: marker.size * (marker.name === "Sun" ? 0.42 : marker.name === "Moon" ? 0.48 : 0.31)
-                            visible: labelsToggle.checked
-                            text: marker.name
-                            font.family: "Segoe UI"
-                            font.pixelSize: 9
-                            color: "#a5a9ad"
-                            style: Text.Outline
-                            styleColor: "#182330"
+                source: "image://earth/day"
+                sourceSize.width: 5400
+                smooth: true
+            }
+            Image {
+                anchors.fill: parent
+                source: "image://earth/night/" + sky.revision
+                cache: false
+                smooth: true
+            }
+            Image {
+                anchors.fill: parent
+                visible: constellationsToggle.checked
+                source: "image://earth/zodiac/" + (labelsToggle.checked ? "labels/" : "no-labels/") + sky.revision
+                sourceSize.width: Math.max(1, Math.round(map.width))
+                sourceSize.height: Math.max(1, Math.round(map.height))
+                cache: false
+                smooth: true
+            }
+            // Farther bodies are created first, so nearer bodies cover them.
+            Repeater {
+                model: sky.markers
+                delegate: Item {
+                    required property var modelData
+                    readonly property var marker: modelData
+                    visible: marker.name === "Sun" ? sunToggle.checked
+                             : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
+                    anchors.fill: parent
+                    Repeater {
+                        model: [-1, 0, 1]
+                        delegate: Item {
+                            required property int modelData
+                            x: (marker.x + modelData) * map.width
+                            y: marker.y * map.height
+                            Image {
+                                anchors.centerIn: parent
+                                width: marker.size; height: marker.size
+                                source: "image://earth/" + marker.image
+                                cache: marker.name !== "Moon"
+                                smooth: true
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                y: marker.size * (marker.name === "Sun" ? 0.42 : marker.name === "Moon" ? 0.48 : 0.31)
+                                visible: labelsToggle.checked
+                                text: marker.name
+                                font.family: "Segoe UI"
+                                font.pixelSize: 9
+                                color: "#a5a9ad"
+                                style: Text.Outline
+                                styleColor: "#182330"
+                            }
                         }
                     }
                 }
@@ -146,11 +157,69 @@ Window {
         }
     }
 
+    component TimeButton: Rectangle {
+        id: button
+        property string label
+        property string description
+        property int direction: 0
+        property bool highlighted: false
+        signal triggered()
+        width: direction === 0 ? 64 : 40
+        height: 32
+        radius: 7
+        color: mouse.pressed ? "#2b4051" : mouse.containsMouse ? "#20303f" : "#121f2b"
+        border.width: 1
+        border.color: activeFocus ? "#829bad" : highlighted ? "#506d80" : "#2a3d4c"
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: description
+        Accessible.onPressAction: triggered()
+        Keys.onSpacePressed: event => { triggered(); event.accepted = true }
+        Keys.onReturnPressed: event => { triggered(); event.accepted = true }
+        Behavior on color { ColorAnimation { duration: 100 } }
+        Text {
+            anchors.centerIn: parent
+            visible: button.direction === 0
+            text: button.label
+            font.family: "Segoe UI"
+            font.pixelSize: 11
+            color: button.highlighted ? "#c0d3df" : "#99adbc"
+        }
+        Canvas {
+            anchors.centerIn: parent
+            width: 12; height: 12
+            visible: button.direction !== 0
+            onPaint: {
+                const ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.strokeStyle = "#b1c4d2"
+                ctx.lineWidth = 1.5
+                ctx.lineCap = "round"
+                ctx.lineJoin = "round"
+                ctx.beginPath()
+                ctx.moveTo(button.direction < 0 ? 8 : 4, 2)
+                ctx.lineTo(button.direction < 0 ? 4 : 8, 6)
+                ctx.lineTo(button.direction < 0 ? 8 : 4, 10)
+                ctx.stroke()
+            }
+        }
+        MouseArea {
+            id: mouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { button.forceActiveFocus(Qt.MouseFocusReason); button.triggered() }
+            // Count the second press of a quick pair as another navigation click.
+            onDoubleClicked: event => { event.accepted = false }
+        }
+    }
+
     Rectangle {
         id: footer
-        anchors.top: map.bottom
-        width: parent.width
-        height: 64
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 112
         color: "#0b131d"
         Rectangle { width: parent.width; height: 1; color: "#1b2936" }
         Text {
@@ -174,10 +243,43 @@ Window {
             VisibilityToggle { id: constellationsToggle; label: "Constellations"; settingsKey: "constellations" }
             VisibilityToggle { id: labelsToggle; label: "Labels"; settingsKey: "labels" }
         }
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 40
+            spacing: 6
+            TimeButton {
+                objectName: "previousDayButton"
+                direction: -1
+                description: "Back exactly 24 hours"
+                onTriggered: sky.stepDay(-1)
+            }
+            TimeButton {
+                objectName: "nowButton"
+                label: "Now"
+                description: "Return to the current live sky"
+                highlighted: sky.live
+                onTriggered: sky.goToNow()
+            }
+            TimeButton {
+                objectName: "nextDayButton"
+                direction: 1
+                description: "Forward exactly 24 hours"
+                onTriggered: sky.stepDay(1)
+            }
+        }
+        Text {
+            objectName: "displayedTimeLabel"
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: 76
+            text: sky.displayedTime
+            font.family: "Segoe UI"
+            font.pixelSize: 11
+            color: "#a5b4bf"
+        }
         Text {
             anchors.right: parent.right
             anchors.rightMargin: 16
-            y: 43
+            y: 96
             text: "Map: NASA Blue Marble  ·  Moon: Gregory H. Revera"
             font.family: "Segoe UI"
             font.pixelSize: 10

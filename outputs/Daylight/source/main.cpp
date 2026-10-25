@@ -211,7 +211,17 @@ class Sky : public QObject {
     Q_PROPERTY(double moonY READ moonY NOTIFY changed)
     Q_PROPERTY(int revision READ revision NOTIFY changed)
     Q_PROPERTY(QVariantList markers READ markers NOTIFY changed)
+    Q_PROPERTY(QString displayedTime READ displayedTime NOTIFY changed)
+    Q_PROPERTY(QDateTime displayedUtc READ displayedUtc NOTIFY changed)
+    Q_PROPERTY(bool live READ live NOTIFY changed)
     QSettings settings{"Daylight","Daylight"};
+    QDateTime displayedInstant;
+    bool liveMode=true;
+    void renderTime(const QDateTime& instant) {
+        displayedInstant=instant;
+        e=calculate(instant); night=nightImage(e.sun); moon=moonImage(e.fraction,e.phase);
+        ++version; emit changed();
+    }
 public:
     Q_INVOKABLE bool layerVisible(const QString& key) const {
         return settings.value("visibility/"+key,true).toBool();
@@ -222,7 +232,27 @@ public:
         if(settings.status()!=QSettings::NoError) qWarning()<<"Could not save visibility settings";
     }
     Ephemeris e; QImage day=dayImage(),night,moon,sun=sunImage(); int version=0;
-    void refresh() { e=calculate(QDateTime::currentDateTimeUtc()); night=nightImage(e.sun); moon=moonImage(e.fraction,e.phase); ++version; emit changed(); }
+    void refresh() { if(liveMode) renderTime(QDateTime::currentDateTimeUtc()); }
+    Q_INVOKABLE void stepDay(int direction) {
+        if(direction!= -1 && direction!=1) return;
+        // Step from the displayed instant by elapsed seconds, including across DST.
+        auto target=displayedInstant.addSecs(qint64(direction)*86400);
+        if(!target.isValid()) return;
+        liveMode=false; renderTime(target);
+    }
+    Q_INVOKABLE void goToNow() {
+        liveMode=true; renderTime(QDateTime::currentDateTimeUtc());
+    }
+    bool live() const { return liveMode; }
+    QDateTime displayedUtc() const { return displayedInstant; }
+    QString displayedTime() const {
+        auto local=displayedInstant.toLocalTime();
+        int offset=local.offsetFromUtc()/60;
+        QString zone=QString("UTC%1%2:%3").arg(offset<0?"-":"+")
+            .arg(std::abs(offset)/60,2,10,QLatin1Char('0'))
+            .arg(std::abs(offset)%60,2,10,QLatin1Char('0'));
+        return local.toString("dd MMM yyyy  HH:mm:ss")+"  ("+zone+")";
+    }
     double sunX() const { return (e.sun.lon+180)/360; }
     double sunY() const { return (90-e.sun.lat)/180; }
     double moonX() const { return (e.moon.lon+180)/360; }
