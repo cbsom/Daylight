@@ -4,7 +4,7 @@ An offline desktop map of daylight, twilight, and night, with the Sun, Moon, pla
 
 Daylight displays a high-resolution world map in a single window. The daylight side stays bright, the night side is shaded, and a smooth transition shows twilight. A subtle line marks the approximate sunrise/sunset boundary. Sun, Moon, and planet markers show the points on Earth directly beneath them. The Moon uses a real photograph shaded to its phase at the displayed time. Twelve zodiac constellations show individually positioned stars joined in conventional patterns, with a faint ecliptic tracing the Solar System’s reference plane.
 
-The application is built with **C++17 and Qt Quick/QML**. It runs locally, works offline, and updates every ten seconds in live mode using the computer's current time. Time navigation can hold the entire sky at a selected instant. There are no accounts, API keys, map servers, or runtime downloads.
+The application is built with **C++17 and Qt Quick/QML**. It runs locally, works offline, and updates every 30 seconds in live mode using the computer's current time. Time navigation can hold the entire sky at a selected instant. There are no accounts, API keys, map servers, or runtime downloads.
 
 ## Features
 
@@ -16,10 +16,10 @@ The application is built with **C++17 and Qt Quick/QML**. It runs locally, works
 - Twelve zodiac constellations at their natural angular sizes, with faint stars, grey connections, and small labels.
 - A subtle continuous ecliptic line. All star data is embedded for offline use.
 - Photographic Moon with a calculated phase shadow and a fixed orientation.
-- A compact footer with five visibility switches whose settings survive restarts.
+- A compact footer with six visibility switches whose settings survive restarts.
 - Readable grey constellation labels with dark outlines, plus small body labels.
 - A footer that remains on-screen in normal, maximized, and full-screen windows; the map preserves its 2:1 shape.
-- Back/forward navigation in exact 24-hour steps, a live Now button, and the displayed date/time with a UTC offset.
+- Hour, 24-hour and sidereal-day stepping, forward/reverse animation, and a live Now button.
 - A half-day, half-night Earth icon for the executable and application window.
 
 ## Run a packaged copy
@@ -172,7 +172,7 @@ Generated builds, packaged binaries, and downloaded SDKs do not need to be commi
 
 ## Controls and saved preferences
 
-All sky layers start visible on the first launch. The five footer switches control:
+On the first launch, the Sun, Moon, and labels are visible. Planets, constellations, and latitude lines start hidden. Saved switch choices take precedence on later launches. The six footer switches control:
 
 | Switch | Shows or hides |
 | --- | --- |
@@ -180,7 +180,8 @@ All sky layers start visible on the first launch. The five footer switches contr
 | Moon | The Moon marker and its label |
 | Planets | Mercury, Venus, Mars, Jupiter, and Saturn, with their labels |
 | Constellations | Zodiac stars, connecting lines, constellation names, and the ecliptic |
-| Labels | All Sun, Moon, planet, and constellation names, without hiding their markers or patterns |
+| Latitude lines | Equator, both tropics (approximately 23.44 degrees north/south), and both polar circles (approximately 66.56 degrees north/south), in subtle green |
+| Labels | Sun, Moon, planet and constellation names, plus latitude degree labels, without hiding the markers or lines |
 
 The switches are independent: hiding labels leaves the bodies and figures visible, and hiding a body also hides its label. Hiding the Sun marker does not turn off daylight shading.
 
@@ -190,15 +191,27 @@ The footer stays anchored to the bottom in normal, maximized, and full-screen wi
 
 ### Time navigation
 
-| Button | Action |
-| --- | --- |
-| Left arrow | Back exactly 24 hours from the displayed instant |
-| Now | Immediately show the actual current sky and resume live updates |
-| Right arrow | Forward exactly 24 hours from the displayed instant |
+A single navigation group controls all map layers. Click the middle label to choose **5 Minutes**, **15 Minutes**, **30 Minutes**, **1 Hour** (the initial selection), **2 Hours**, **6 Hours**, **1 Sidereal Day**, or **24 Hours**.
 
-The arrows and Now button support mouse clicks, Tab navigation, and Space or Enter. Rapid double-clicks on an arrow count as two steps.
+The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses. Playback advances **one selected interval per real second**, with ten smaller updates per second for intervals up to 6 Hours. **1 Sidereal Day** and **24 Hours** instead jump once per second without intermediate frames, keeping daylight shading from sweeping across the map. Elapsed-time calculation prevents cumulative timer drift, including the exact 23h 56m 4.09s sidereal day. Changing the interval while playing preserves time and direction and immediately applies the new rate.
 
-The footer's left and right arrows move the displayed instant backward or forward by exactly 86,400 seconds. Every sky layer and the Moon phase use that same instant. Navigation pauses live updates until **Now** is pressed; Now always samples the actual current time immediately and resumes ten-second updates, even if live mode is already active. The date/time beneath the buttons is local to the computer and includes the UTC offset for the selected date. Because a step is elapsed 24 hours, its local wall-clock time can change across daylight-saving transitions. The application starts in live mode on each launch; only layer visibility is persisted.
+Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. The selected interval and playback state are not saved.
+
+The date/time beneath the controls is local to the computer and includes the UTC offset for the selected date. Steps are elapsed UTC durations, so the local wall-clock hour can change across daylight-saving transitions. The application starts in live mode on each launch; the selected time and playback state are not saved. Controls and layer switches share one compact row when space permits, and stack on narrower windows.
+
+Geographic latitude lines stay fixed on Earth while the celestial overlays move. The slightly thicker equator and the other parallels use green, distinct from the lavender ecliptic. Degree labels repeat at the left edge, center, and right edge (0, +/-23.44, and +/-66.56 degrees); the Labels switch also controls these labels. They have their own saved toggle and do not depend on constellation or label visibility.
+
+### Zoom and pan
+
+Click a place on the map to center it and smoothly zoom in. That geographic location stays centered through time navigation and animation. Click the Sun, Moon, or a visible planet to follow that body instead; a small badge identifies the current target. The mouse wheel zooms around the pointer, from the whole world up to 8x. Drag to pan and lock a new geographic location; longitude wraps seamlessly and vertical panning stops at the poles. Wheel zoom keeps a followed body centered. Double-click the map or use the small **Fit map** control to release the target and show the whole Earth again. Body markers and latitude labels stay readable while zooming. Camera position and zoom are not saved.
+
+### Earth's daily rotation
+
+The **globe-and-arrow button** in the footer plays Earth's daily rotation beneath the sky, at a selectable speed. The adjacent speed dropdown ranges from one simulated minute to eight simulated hours per real second; the default is **2 h/s** (24 hours in 12 seconds). Speed can change while paused or playing without jumping the selected time. Stars remain nearly fixed in the view while the continents pass beneath them. The Sun, Moon, and planets retain their independent motion against the stars. Daylight stays aligned with the Sun, rather than being painted permanently onto the moving land.
+
+The globe button is highlighted during playback; click it again to pause. Pausing holds the selected time and sky-oriented view. Hour/day navigation still works in that view; manual steps stop continuous playback first. **Now** stops all playback, returns to current time, and restores the usual Earth-fixed view. **Escape** also pauses, and closing or hiding the window stops playback. A selected geographic location or body remains centered across navigation, rotation, and **Now**. Use **Fit map** to release tracking and watch Earth pass beneath the sky.
+
+Earth movement uses elapsed time and updates about 30 times per second. Astronomy and shading are refreshed at a lower cadence, with lower-resolution night shading during playback, to keep the land motion responsive; full-resolution shading returns when paused. No additional network services or dependencies are needed.
 
 ## Customize the appearance
 
@@ -213,7 +226,7 @@ Edit [main.cpp](outputs/Daylight/source/main.cpp) to change:
 - **Horizon line:** the painter's pen color, alpha, and width in `nightImage()`.
 - **Moon illumination:** `moonImage()`.
 - **Sun appearance:** `sunImage()`.
-- **Update interval:** the timer configured in `main()`.
+- **Update interval:** the timers configured in `main()`. Continuous playback speed choices are `rotationRates` in `Sky`; `rotationSpeedIndex` selects the initial rate.
 
 Rebuild after changing C++, QML, or bundled assets.
 

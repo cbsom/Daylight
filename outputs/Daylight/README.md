@@ -6,7 +6,7 @@ traditional zodiac constellations. Each body or star is positioned above its
 geocentric point on Earth. A faint ecliptic and grey constellation connections
 provide context without dominating the map.
 
-Live mode updates every ten seconds. Time navigation can hold the whole sky at
+Live mode updates every 30 seconds. Time navigation can hold the whole sky at
 a selected instant. All images and star data are embedded; no accounts, API
 keys, or runtime downloads are needed.
 
@@ -22,27 +22,28 @@ at multiple sizes for Windows Explorer and the taskbar.
 
 ## Controls
 
-The footer has five switches: **Sun**, **Moon**, **Planets**, **Constellations**,
-and **Labels**. Planets controls Mercury, Venus, Mars, Jupiter, and Saturn.
+The footer has six switches: **Sun**, **Moon**, **Planets**, **Constellations**,
+**Latitude lines**, and **Labels**. Planets controls Mercury, Venus, Mars, Jupiter, and Saturn.
 Constellations controls all zodiac figures and the ecliptic. Labels controls
 all celestial names. Hiding a body also hides its label; hiding the Sun marker
 does not hide daylight shading.
 
-Switch states are saved immediately and restored on the next launch. The first
-launch starts with everything visible. Linux stores preferences in
+Switch states are saved immediately and restored on the next launch. On the first
+launch, Sun, Moon, and Labels are on; Planets, Constellations, and Latitude lines are off. Existing saved choices are preserved. Linux stores preferences in
 `~/.config/Daylight/Daylight.conf` (or under `$XDG_CONFIG_HOME`); Windows uses the
 current user’s `Software\Daylight\Daylight` registry settings.
 
-The **left/right arrows** step backward/forward by exactly 24 hours (86,400
-seconds) from the displayed instant. All bodies, stars, shading, and Moon phase
-use that same time, and live updates pause. **Now** always samples the actual
-current time immediately and resumes live updates. The label underneath shows
-the displayed local date/time and its UTC offset. A 24-hour step can change the
-local wall-clock hour when crossing a daylight-saving transition.
+**Latitude lines** controls the equator, both tropics (approximately +/-23.44 degrees), and the Arctic/Antarctic Circles (approximately +/-66.56 degrees). These fixed geographic parallels use a subtle green, distinct from the ecliptic, and the switch state is saved. The equator is slightly thicker. Degree labels repeat at the left edge, center and right edge; they follow the Labels switch.
 
-Mouse clicks, Tab navigation, and Space or Enter operate the controls. Rapid
-double-clicks on the arrows count as two steps. The application starts in live
-mode each time; the selected viewing time is not saved.
+A single navigation group controls all map layers. Click the middle label to choose **5 Minutes**, **15 Minutes**, **30 Minutes**, **1 Hour** (the initial selection), **2 Hours**, **6 Hours**, **1 Sidereal Day**, or **24 Hours**.
+
+The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses. Playback advances **one selected interval per real second**, with ten smaller updates per second for intervals up to 6 Hours. **1 Sidereal Day** and **24 Hours** instead jump once per second without intermediate frames, keeping daylight shading from sweeping across the map. Elapsed-time calculation prevents cumulative timer drift, including the exact 23h 56m 4.09s sidereal day. Changing the interval while playing preserves time and direction and immediately applies the new rate.
+
+Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. The selected interval and playback state are not saved.
+
+Click the map to center and zoom into a place, which stays centered through time navigation and animation. Click the Sun, Moon, or a visible planet to follow that body instead; a small badge identifies the target. Use the wheel to zoom around the pointer, drag to select a new geographic center, and double-click or press **Fit map** to release tracking and reset. Wheel zoom keeps a followed body centered. Zoom is limited to 1-8x; longitude wraps and the camera cannot pan beyond the poles.
+
+The **globe-and-arrow button** in the footer plays Earth scrolling beneath the nearly fixed stars. The adjacent speed dropdown selects one simulated minute to eight simulated hours per real second (default **2 h/s**). Speed changes work while paused or playing without jumping the selected time. The Sun, Moon and planets retain their motion against the stars. Clicking the highlighted globe button pauses and holds this view; **Escape** pauses too. **Now** stops playback and restores current time in the usual Earth-fixed view. Selected locations and bodies stay centered through rotation, navigation, and **Now**; use **Fit map** to release tracking. Zoom and playback state are not saved.
 
 The footer stays at the bottom in normal, maximized, and full-screen windows.
 The map fits above it with its 2:1 aspect ratio preserved, adding margins where

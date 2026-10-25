@@ -77,9 +77,9 @@ Position horizonPosition(Position sun, double angle)
     double z = std::sin(h) * cz + std::cos(h) * fz * std::sin(angle);
     return {std::asin(std::clamp(z, -1.0, 1.0)) * 180 / pi, std::atan2(y, x) * 180 / pi};
 }
-QImage nightImage(Position sun)
+QImage nightImage(Position sun,int width=1800)
 {
-    QImage image(1800, 900, QImage::Format_ARGB32_Premultiplied);
+    QImage image(width, width/2, QImage::Format_ARGB32_Premultiplied);
     for (int y = 0; y < image.height(); ++y)
     {
         auto row = reinterpret_cast<QRgb *>(image.scanLine(y));
@@ -244,6 +244,11 @@ QImage dayImage() {
     }
     return image;
 }
+double siderealDegrees(const QDateTime& instant) {
+    auto utc=instant.toUTC(); auto d=utc.date(); auto c=utc.time();
+    auto time=Astronomy_MakeTime(d.year(),d.month(),d.day(),c.hour(),c.minute(),c.second()+c.msec()/1000.0);
+    return 15*Astronomy_SiderealTime(&time);
+}
 class Sky : public QObject
 {
     Q_OBJECT
@@ -257,21 +262,175 @@ class Sky : public QObject
     Q_PROPERTY(QString displayedTime READ displayedTime NOTIFY changed)
     Q_PROPERTY(QDateTime displayedUtc READ displayedUtc NOTIFY changed)
     Q_PROPERTY(bool live READ live NOTIFY changed)
+    Q_PROPERTY(QString animationUnit READ animationUnit NOTIFY changed)
+    Q_PROPERTY(int animationDirection READ animationDirection NOTIFY changed)
+    Q_PROPERTY(QString navigationLabel READ navigationLabel NOTIFY changed)
+    Q_PROPERTY(int navigationIndex READ selectedInterval NOTIFY changed)
+    Q_PROPERTY(bool rotating READ rotating NOTIFY changed)
+    Q_PROPERTY(bool skyFixed READ skyFixed NOTIFY changed)
+    Q_PROPERTY(qint64 rotationSpeed READ rotationSpeed NOTIFY changed)
+    Q_PROPERTY(int rotationIndex READ selectedRotationSpeed NOTIFY changed)
+    Q_PROPERTY(QString rotationSpeedLabel READ rotationSpeedLabel NOTIFY changed)
+    Q_PROPERTY(bool canSlowRotation READ canSlowRotation NOTIFY changed)
+    Q_PROPERTY(bool canSpeedRotation READ canSpeedRotation NOTIFY changed)
+    Q_PROPERTY(double earthOffset READ earthOffset NOTIFY viewChanged)
+    Q_PROPERTY(double skyOffset READ skyOffset NOTIFY changed)
     QSettings settings{"Daylight","Daylight"};
     // The instant currently rendered on the map.
     QDateTime displayedInstant;
     // "Live" means the map tracks wall-clock time and auto-refreshes periodically.
     bool liveMode=true;
+    QTimer animationTimer;
+    QTimer rotationTimer;
+    QElapsedTimer rotationClock, ephemerisClock, navigationClock;
+    QDateTime navigationStart;
+    qint64 playbackStep=3600000;
+    QDateTime rotationStart;
+    bool inertialView=false;
+    double referenceSidereal=0;
+    double currentEarthOffset=0;
+    inline static constexpr std::array<qint64,8> rotationRates={60,300,900,1800,3600,7200,14400,28800};
+    int rotationSpeedIndex=5;
+    QDateTime rotationInstant() const {
+        if(rotationTimer.isActive()) return rotationStart.addMSecs(rotationClock.elapsed()*rotationSpeed());
+        if(animationTimer.isActive()) {
+            // Daily intervals hold their frame between whole-second steps.
+            const auto elapsed=navigationClock.elapsed();
+            const auto delta=playbackStep>=86164090 ? (elapsed/1000)*playbackStep
+                                                  : qRound64(elapsed*double(playbackStep)/1000);
+            return navigationStart.addMSecs(delta*runningDirection);
+        }
+        return displayedInstant;
+    }
+    double offsetAt(const QDateTime& instant) const {
+        if(!inertialView) return 0;
+        double turns=(siderealDegrees(instant)-referenceSidereal)/360.0;
+        return turns-std::floor(turns);
+    }
+    QString runningUnit;
+    int runningDirection=0;
+    inline static constexpr std::array<qint64,8> navigationIntervals={300000,900000,1800000,3600000,7200000,21600000,86164090,86400000};
+    inline static constexpr std::array<const char*,8> navigationLabels={"5 Minutes","15 Minutes","30 Minutes","1 Hour","2 Hours","6 Hours","1 Sidereal Day","24 Hours"};
+    int intervalIndex=3;
+    qint64 navigationStep() const { return navigationIntervals[intervalIndex]; }
+    static qint64 stepMilliseconds(const QString& unit) {
+        if(unit=="hour") return 3600000;
+        if(unit=="day") return 86400000;
+        if(unit=="sidereal") return 86164090; // 23h 56m 4.09s, elapsed UTC time.
+        return 0;
+    }
+    bool advanceTime(int direction,const QString& unit) {
+        const auto delta=unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
+        if((direction!=-1 && direction!=1) || !delta) return false;
+        const auto target=displayedInstant.addMSecs(direction*delta);
+        // Keep all navigation within Astronomy Engine's supported practical range.
+        if(!target.isValid() || target.date().year()<1 || target.date().year()>9999) return false;
+        liveMode=false;
+        renderTime(target);
+        return true;
+    }
     void renderTime(const QDateTime& instant) {
         // Recompute all derived visuals from one authoritative UTC instant.
         displayedInstant=instant;
-        e=calculate(instant); night=nightImage(e.sun); moon=moonImage(e.fraction,e.phase);
+        e=calculate(instant); night=nightImage(e.sun,(rotating() || animationTimer.isActive())?900:1800); moon=moonImage(e.fraction,e.phase);
         // Bump revision so cached image URLs in QML refresh (moon texture, overlays, etc.).
-        ++version; emit changed();
+        currentEarthOffset=offsetAt(rotationInstant());
+        ++version; emit changed(); emit viewChanged();
     }
 public:
+    Sky() {
+        rotationTimer.setInterval(33);
+        rotationTimer.setTimerType(Qt::PreciseTimer);
+        QObject::connect(&rotationTimer,&QTimer::timeout,this,[this] {
+            auto instant=rotationInstant();
+            if(!instant.isValid() || instant.date().year()<1 || instant.date().year()>9999) { stopAnimation(); return; }
+            // Land motion is frame-rate driven; expensive sky textures update less often.
+            currentEarthOffset=offsetAt(instant);
+            emit viewChanged();
+            if(ephemerisClock.elapsed()>=200) { renderTime(instant); ephemerisClock.restart(); }
+        });
+        animationTimer.setInterval(100);
+        animationTimer.setTimerType(Qt::PreciseTimer);
+        QObject::connect(&animationTimer,&QTimer::timeout,this,[this] {
+            auto instant=rotationInstant();
+            if(!instant.isValid() || instant.date().year()<1 || instant.date().year()>9999) { stopAnimation(); return; }
+            renderTime(instant);
+        });
+    }
+    QString animationUnit() const { return runningUnit; }
+    int animationDirection() const { return runningDirection; }
+    int selectedInterval() const { return intervalIndex; }
+    QString navigationLabel() const { return QString::fromLatin1(navigationLabels[intervalIndex]); }
+    Q_INVOKABLE void selectInterval(int index) {
+        if(index<0 || index>=int(navigationIntervals.size()) || index==intervalIndex) return;
+        const int direction=runningDirection;
+        stopAnimation(); intervalIndex=index;
+        if(direction) toggleAnimation(direction,"navigation");
+        else emit changed();
+    }
+    qint64 rotationSpeed() const { return rotationRates[rotationSpeedIndex]; }
+    QString rotationSpeedLabel() const {
+        return rotationSpeed()<3600 ? QString::number(rotationSpeed()/60)+" min/s" : QString::number(rotationSpeed()/3600)+" h/s";
+    }
+    bool canSlowRotation() const { return rotationSpeedIndex>0; }
+    bool canSpeedRotation() const { return rotationSpeedIndex<int(rotationRates.size())-1; }
+    int selectedRotationSpeed() const { return rotationSpeedIndex; }
+    Q_INVOKABLE void changeRotationSpeed(int direction) {
+        if(direction!=-1 && direction!=1) return;
+        selectRotationSpeed(std::clamp(rotationSpeedIndex+direction,0,int(rotationRates.size())-1));
+    }
+    Q_INVOKABLE void selectRotationSpeed(int next) {
+        if(next<0 || next>=int(rotationRates.size()) || next==rotationSpeedIndex) return;
+        // Rebase the continuous clock at the OLD speed before changing its rate.
+        const auto held=rotationInstant();
+        if(rotating()) { rotationStart=held; rotationClock.restart(); }
+        rotationSpeedIndex=next;
+        if(rotating()) renderTime(held); else emit changed();
+        emit viewChanged();
+    }
+    bool rotating() const { return rotationTimer.isActive(); }
+    bool skyFixed() const { return inertialView; }
+    double earthOffset() const { return currentEarthOffset; }
+    double skyOffset() const { return offsetAt(displayedInstant); }
+    Q_INVOKABLE void stopAnimation() {
+        const bool wasRotating=rotating();
+        const bool wasPlaying=animationTimer.isActive();
+        const auto held=rotationInstant();
+        rotationTimer.stop(); animationTimer.stop();
+        const bool wasStepping=runningDirection!=0;
+        runningDirection=0; runningUnit.clear();
+        if(wasRotating || wasPlaying) renderTime(held);
+        else if(wasStepping) emit changed();
+    }
+    Q_INVOKABLE void toggleEarthRotation() {
+        if(rotating()) { stopAnimation(); return; }
+        stopAnimation();
+        if(liveMode) renderTime(QDateTime::currentDateTimeUtc());
+        if(!inertialView) { referenceSidereal=siderealDegrees(displayedInstant); inertialView=true; }
+        liveMode=false;
+        rotationStart=displayedInstant;
+        rotationClock.restart(); ephemerisClock.restart(); rotationTimer.start();
+        currentEarthOffset=offsetAt(displayedInstant);
+        emit changed(); emit viewChanged();
+    }
+    Q_INVOKABLE void stepTime(int direction,const QString& unit) {
+        if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
+        stopAnimation(); advanceTime(direction,unit);
+    }
+    Q_INVOKABLE void toggleAnimation(int direction,const QString& unit) {
+        if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
+        if(runningDirection==direction && runningUnit==unit) { stopAnimation(); return; }
+        stopAnimation();
+        runningDirection=direction; runningUnit=unit;
+        liveMode=false;
+        playbackStep=unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
+        animationTimer.setInterval(playbackStep>=86164090 ? 1000 : 100);
+        navigationStart=displayedInstant; navigationClock.restart(); animationTimer.start();
+        emit changed();
+    }
     Q_INVOKABLE bool layerVisible(const QString& key) const {
-        return settings.value("visibility/"+key,true).toBool();
+        const bool defaultVisible=key!="planets" && key!="constellations" && key!="latitudeLines";
+        return settings.value("visibility/"+key,defaultVisible).toBool();
     }
     Q_INVOKABLE void setLayerVisible(const QString& key,bool visible) {
         settings.setValue("visibility/"+key,visible);
@@ -281,16 +440,10 @@ public:
     Ephemeris e; QImage day=dayImage(),night,moon,sun=sunImage(); int version=0;
     // Called by the periodic timer; only applies while in live mode.
     void refresh() { if(liveMode) renderTime(QDateTime::currentDateTimeUtc()); }
-    Q_INVOKABLE void stepDay(int direction) {
-        if(direction!= -1 && direction!=1) return;
-        // Step from the displayed instant by elapsed seconds, including across DST.
-        auto target=displayedInstant.addSecs(qint64(direction)*86400);
-        if(!target.isValid()) return;
-        // Manual navigation exits live mode until the user explicitly returns to "Now".
-        liveMode=false; renderTime(target);
-    }
+    Q_INVOKABLE void stepDay(int direction) { stepTime(direction,"day"); }
     Q_INVOKABLE void goToNow() {
-        // Return to live mode and render immediately so UI feedback is instant.
+        stopAnimation();
+        inertialView=false;
         liveMode=true; renderTime(QDateTime::currentDateTimeUtc());
     }
     bool live() const { return liveMode; }
@@ -325,6 +478,7 @@ public:
     int revision() const { return version; }
 signals:
     void changed();
+    void viewChanged();
 };
 class Images : public QQuickImageProvider
 {
@@ -401,7 +555,15 @@ bool selfTest() {
             ok=ok && std::abs(altitudeSine(p.lat,p.lon,sun)-std::sin(rad(visibleSunAltitude)))<1e-10;
         }
     }
-    qInfo()<<"Astronomy, twilight, lunar phase and zodiac tests:"<<(ok?"PASS":"FAIL");
+    Sky navigation; navigation.goToNow();
+    ok=ok && navigation.navigationLabel()=="1 Hour" && navigation.selectedInterval()==3;
+    const qint64 intervals[]={300000,900000,1800000,3600000,7200000,21600000,86164090,86400000};
+    for(int i=0;i<8;++i) {
+        navigation.selectInterval(i);auto held=navigation.displayedUtc();
+        navigation.stepTime(1,"navigation");ok=ok && held.msecsTo(navigation.displayedUtc())==intervals[i];
+        navigation.stepTime(-1,"navigation");ok=ok && held==navigation.displayedUtc();
+    }
+    qInfo()<<"Astronomy, twilight, lunar phase, zodiac and navigation tests:"<<(ok?"PASS":"FAIL");
     return ok;
 }
 int main(int argc, char **argv)
