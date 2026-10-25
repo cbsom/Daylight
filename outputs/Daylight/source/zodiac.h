@@ -101,11 +101,11 @@ QImage zodiacImage(const ZodiacFrame& frame,QSize size,bool showLabels=true) {
     QImage image(size,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::transparent);
     QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing);
     // Widths and dots are in display pixels, so enlarging the map stays restrained.
-    painter.setPen(QPen(QColor(166,171,178,65),.65));
+    painter.setPen(QPen(QColor(166,166,200,65),.65));
     for(size_t i=1;i<frame.ecliptic.size();++i)
         drawWrappedSegment(painter,size,frame.ecliptic[i-1],frame.ecliptic[i]);
     const auto& catalog=zodiacCatalog();
-    QFont font("Segoe UI"); font.setPixelSize(15); font.setWeight(QFont::Medium);
+    QFont font("Segoe UI"); font.setPixelSize(9); font.setWeight(QFont::Medium);
     painter.setFont(font);
     for(size_t i=0;i<catalog.size();++i) {
         const auto& figure=catalog[i]; const auto& points=frame.figures[i];

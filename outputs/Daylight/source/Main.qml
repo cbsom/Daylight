@@ -11,7 +11,7 @@ Window {
     title: "Daylight"
     color: "#080f18"
 
-    // Reserve the footer first; fit the 2:1 map inside the remaining area.
+    // Reserve the footer first; let the map occupy all remaining space.
     Item {
         id: mapViewport
         anchors.top: parent.top
@@ -22,9 +22,7 @@ Window {
 
         Item {
             id: map
-            anchors.centerIn: parent
-            width: Math.min(parent.width, parent.height * 2)
-            height: width / 2
+            anchors.fill: parent
             clip: true
 
             Image {
@@ -219,13 +217,22 @@ Window {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: 112
+        readonly property int sideMargin: 16
+        readonly property int verticalPadding: 5
+        readonly property int minimumFooterHeight: 100
+        readonly property real topRowBottom: Math.max(titleText.y + titleText.implicitHeight, togglesRow.y + togglesRow.height)
+        readonly property real navGroupHeight: timeControls.height + 4 + displayedTimeLabel.implicitHeight
+        readonly property real lowerBandTop: topRowBottom + 4
+        readonly property real lowerBandHeight: Math.max(0, footer.height - footer.verticalPadding - lowerBandTop)
+        readonly property real navGroupTop: lowerBandTop + Math.max(0, (lowerBandHeight - navGroupHeight) / 2)
+        height: minimumFooterHeight
         color: "#0b131d"
         Rectangle { width: parent.width; height: 1; color: "#1b2936" }
         Text {
+            id: titleText
             anchors.left: parent.left
-            anchors.leftMargin: 16
-            y: 14
+            anchors.leftMargin: footer.sideMargin
+            y: footer.verticalPadding + 2
             text: "DAYLIGHT"
             font.family: "Segoe UI"
             font.pixelSize: 10
@@ -233,9 +240,10 @@ Window {
             color: "#8197aa"
         }
         Row {
+            id: togglesRow
             anchors.right: parent.right
-            anchors.rightMargin: 16
-            y: 4
+            anchors.rightMargin: footer.sideMargin
+            y: footer.verticalPadding
             spacing: window.width < 850 ? 12 : 20
             VisibilityToggle { id: sunToggle; label: "Sun"; settingsKey: "sun" }
             VisibilityToggle { id: moonToggle; label: "Moon"; settingsKey: "moon" }
@@ -244,8 +252,9 @@ Window {
             VisibilityToggle { id: labelsToggle; label: "Labels"; settingsKey: "labels" }
         }
         Row {
+            id: timeControls
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 40
+            y: footer.navGroupTop
             spacing: 6
             TimeButton {
                 objectName: "previousDayButton"
@@ -268,18 +277,20 @@ Window {
             }
         }
         Text {
+            id: displayedTimeLabel
             objectName: "displayedTimeLabel"
             anchors.horizontalCenter: parent.horizontalCenter
-            y: 76
+            y: timeControls.y + timeControls.height + 4
             text: sky.displayedTime
             font.family: "Segoe UI"
             font.pixelSize: 11
             color: "#a5b4bf"
         }
         Text {
+            id: attribution
             anchors.right: parent.right
-            anchors.rightMargin: 16
-            y: 96
+            anchors.rightMargin: footer.sideMargin
+            y: displayedTimeLabel.y
             text: "Map: NASA Blue Marble  ·  Moon: Gregory H. Revera"
             font.family: "Segoe UI"
             font.pixelSize: 10

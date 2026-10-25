@@ -247,6 +247,7 @@ QImage dayImage() {
 class Sky : public QObject
 {
     Q_OBJECT
+    // These properties are consumed by QML bindings for map placement, labels and UI state.
     Q_PROPERTY(double sunX READ sunX NOTIFY changed)
     Q_PROPERTY(double sunY READ sunY NOTIFY changed)
     Q_PROPERTY(double moonX READ moonX NOTIFY changed)
@@ -257,11 +258,15 @@ class Sky : public QObject
     Q_PROPERTY(QDateTime displayedUtc READ displayedUtc NOTIFY changed)
     Q_PROPERTY(bool live READ live NOTIFY changed)
     QSettings settings{"Daylight","Daylight"};
+    // The instant currently rendered on the map.
     QDateTime displayedInstant;
+    // "Live" means the map tracks wall-clock time and auto-refreshes periodically.
     bool liveMode=true;
     void renderTime(const QDateTime& instant) {
+        // Recompute all derived visuals from one authoritative UTC instant.
         displayedInstant=instant;
         e=calculate(instant); night=nightImage(e.sun); moon=moonImage(e.fraction,e.phase);
+        // Bump revision so cached image URLs in QML refresh (moon texture, overlays, etc.).
         ++version; emit changed();
     }
 public:
@@ -274,20 +279,24 @@ public:
         if(settings.status()!=QSettings::NoError) qWarning()<<"Could not save visibility settings";
     }
     Ephemeris e; QImage day=dayImage(),night,moon,sun=sunImage(); int version=0;
+    // Called by the periodic timer; only applies while in live mode.
     void refresh() { if(liveMode) renderTime(QDateTime::currentDateTimeUtc()); }
     Q_INVOKABLE void stepDay(int direction) {
         if(direction!= -1 && direction!=1) return;
         // Step from the displayed instant by elapsed seconds, including across DST.
         auto target=displayedInstant.addSecs(qint64(direction)*86400);
         if(!target.isValid()) return;
+        // Manual navigation exits live mode until the user explicitly returns to "Now".
         liveMode=false; renderTime(target);
     }
     Q_INVOKABLE void goToNow() {
+        // Return to live mode and render immediately so UI feedback is instant.
         liveMode=true; renderTime(QDateTime::currentDateTimeUtc());
     }
     bool live() const { return liveMode; }
     QDateTime displayedUtc() const { return displayedInstant; }
     QString displayedTime() const {
+        // Show local clock time, but include explicit UTC offset for clarity.
         auto local=displayedInstant.toLocalTime();
         int offset=local.offsetFromUtc()/60;
         QString zone=QString("UTC%1%2:%3").arg(offset<0?"-":"+")
@@ -301,6 +310,7 @@ public:
     double moonY() const { return (90-e.moon.lat)/180; }
     QVariantList markers() const {
         QVariantList result;
+        // Draw farthest-to-nearest so nearby bodies visually overlap distant ones.
         std::array<int,7> order={0,1,2,3,4,5,6};
         std::sort(order.begin(),order.end(),[&](int a,int b){return e.bodies[a].distance>e.bodies[b].distance;});
         const int sizes[]={28,29,12,15,14,20,25};
@@ -415,7 +425,24 @@ int main(int argc, char **argv)
     QObject::connect(window,&QQuickWindow::frameSwapped,&app,[&] {
         if(first) { qInfo()<<"First frame:"<<startup.elapsed()<<"ms"; first=false; }
     },Qt::QueuedConnection);
-    QTimer timer; QObject::connect(&timer,&QTimer::timeout,&sky,&Sky::refresh); timer.start(10000);
+    // Keep "Now" mode current: refresh sky + displayed time every 30 seconds.
+    QTimer timer;
+    timer.setInterval(30000);
+    QObject::connect(&timer,&QTimer::timeout,&sky,&Sky::refresh);
+    // Run the periodic refresh only while live mode is active.
+    // Live mode is true on startup and after pressing "Now"; stepping days disables it.
+    const auto syncLiveRefresh = [&sky, &timer] {
+        if (sky.live()) {
+            if (!timer.isActive())
+                timer.start();
+        } else if (timer.isActive()) {
+            timer.stop();
+        }
+    };
+    // Re-evaluate timer state whenever mode changes (goToNow/stepDay emit changed()).
+    QObject::connect(&sky,&Sky::changed,&app,syncLiveRefresh);
+    // Initialize the timer from startup mode (live by default).
+    syncLiveRefresh();
     int capture=app.arguments().indexOf("--capture");
     if(capture>=0 && capture+1<app.arguments().size()) {
         QString path=app.arguments().at(capture+1);
