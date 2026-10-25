@@ -6,6 +6,7 @@ cmake-build-*/
 /bin/
 [Dd]ebug/
 [Rr]elease/
+build-qt68/
 
 # Local SDKs, downloaded tools, scratch files and test captures.
 # Keep the small scripts needed to reproduce this project's build/setup.
