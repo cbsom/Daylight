@@ -1,6 +1,8 @@
 # Daylight
 
-An offline desktop map of daylight, twilight, and night, with the Sun, Moon, planets, and zodiac sky positioned over Earth.
+<img width="1282" height="784" alt="Daylight_UJiLygmqMs" src="https://github.com/user-attachments/assets/5b59ebf1-e2f1-42a3-b065-4e701ce5e20c" />
+
+A desktop map of daylight, twilight, and night, with the Sun, Moon, planets, and zodiac constellations positioned over Earth.
 
 Daylight displays a high-resolution world map in a single window. The daylight side stays bright, the night side is shaded, and a smooth transition shows twilight. A subtle line marks the approximate sunrise/sunset boundary. Sun, Moon, and planet markers show the points on Earth directly beneath them. The Moon uses a real photograph shaded to its phase at the displayed time. Twelve zodiac constellations show individually positioned stars joined in conventional patterns, with a faint ecliptic tracing the Solar System’s reference plane.
 
