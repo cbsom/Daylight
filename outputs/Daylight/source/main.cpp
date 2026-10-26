@@ -294,11 +294,10 @@ class Sky : public QObject
     QDateTime rotationInstant() const {
         if(rotationTimer.isActive()) return rotationStart.addMSecs(rotationClock.elapsed()*rotationSpeed());
         if(animationTimer.isActive()) {
-            // Daily intervals hold their frame between whole-second steps.
-            const auto elapsed=navigationClock.elapsed();
-            const auto delta=playbackStep>=86164090 ? (elapsed/1000)*playbackStep
-                                                  : qRound64(elapsed*double(playbackStep)/1000);
-            return navigationStart.addMSecs(delta*runningDirection);
+            // Daily playback is advanced only by timer ticks, so a late/early
+            // callback cannot repeat or skip a date at a rounding boundary.
+            if(playbackStep>=86164090) return displayedInstant;
+            return navigationStart.addMSecs(qRound64(navigationClock.elapsed()*double(playbackStep)/1000)*runningDirection);
         }
         return displayedInstant;
     }
@@ -352,6 +351,10 @@ public:
         animationTimer.setInterval(100);
         animationTimer.setTimerType(Qt::PreciseTimer);
         QObject::connect(&animationTimer,&QTimer::timeout,this,[this] {
+            if(playbackStep>=86164090) {
+                if(!advanceTime(runningDirection,runningUnit)) stopAnimation();
+                return;
+            }
             auto instant=rotationInstant();
             if(!instant.isValid() || instant.date().year()<1 || instant.date().year()>9999) { stopAnimation(); return; }
             renderTime(instant);
@@ -365,7 +368,7 @@ public:
         if(index<0 || index>=int(navigationIntervals.size()) || index==intervalIndex) return;
         const int direction=runningDirection;
         stopAnimation(); intervalIndex=index;
-        if(direction) toggleAnimation(direction,"navigation");
+        if(direction) toggleAnimation(direction,"navigation",false);
         else emit changed();
     }
     qint64 rotationSpeed() const { return rotationRates[rotationSpeedIndex]; }
@@ -417,16 +420,18 @@ public:
         if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
         stopAnimation(); advanceTime(direction,unit);
     }
-    Q_INVOKABLE void toggleAnimation(int direction,const QString& unit) {
+    Q_INVOKABLE void toggleAnimation(int direction,const QString& unit,bool initialStep=true) {
         if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
         if(runningDirection==direction && runningUnit==unit) { stopAnimation(); return; }
         stopAnimation();
         runningDirection=direction; runningUnit=unit;
         liveMode=false;
         playbackStep=unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
-        animationTimer.setInterval(playbackStep>=86164090 ? 1000 : 100);
+        animationTimer.setInterval(playbackStep>=86164090 ? 500 : 100);
         navigationStart=displayedInstant; navigationClock.restart(); animationTimer.start();
-        emit changed();
+        // Show the first daily frame immediately; subsequent frames arrive every 500 ms.
+        if(initialStep && playbackStep>=86164090) { if(!advanceTime(direction,unit)) stopAnimation(); }
+        else emit changed();
     }
     Q_INVOKABLE bool layerVisible(const QString& key) const {
         const bool defaultVisible=key!="planets" && key!="constellations" && key!="latitudeLines";

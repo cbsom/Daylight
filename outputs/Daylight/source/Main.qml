@@ -144,10 +144,10 @@ Window {
                     }
                     // Keep marker sizes readable while zooming the geographic area.
                     Repeater {
-                        model: sky.markers
+                        model: 7
                         delegate: Item {
-                            required property var modelData
-                            readonly property var marker: modelData
+                            required property int index
+                            readonly property var marker: sky.markers[index]
                             visible: marker.name === "Sun" ? sunToggle.checked
                                      : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
                             x: marker.x * map.width

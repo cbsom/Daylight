@@ -18,8 +18,11 @@ The application is built with **C++17 and Qt Quick/QML**. It runs locally, works
 - Photographic Moon with a calculated phase shadow and a fixed orientation.
 - A compact footer with six visibility switches whose settings survive restarts.
 - Readable grey constellation labels with dark outlines, plus small body labels.
-- A footer that remains on-screen in normal, maximized, and full-screen windows; the map preserves its 2:1 shape.
-- Hour, 24-hour and sidereal-day stepping, forward/reverse animation, and a live Now button.
+- A responsive footer that remains on-screen while the map fills the area above it.
+- One navigation group with eight selectable intervals, forward/reverse playback, and a live Now button.
+- Continuous Earth rotation beneath the sky, with a globe button and speed dropdown in the footer.
+- Click-to-zoom, wheel zoom, drag panning, and tracking of a geographic location or celestial body.
+- Subtle labeled equator, tropics, and polar circles with their own visibility switch.
 - A half-day, half-night Earth icon for the executable and application window.
 
 ## Run a packaged copy
@@ -187,15 +190,20 @@ The switches are independent: hiding labels leaves the bodies and figures visibl
 
 The chosen switch states are saved immediately using Qt settings and restored on the next launch. On Linux they are stored in `~/.config/Daylight/Daylight.conf` (or under `$XDG_CONFIG_HOME`); Windows uses the current user’s `Software\Daylight\Daylight` registry settings. Switches support mouse clicks, Tab navigation, and Space or Enter.
 
-The footer stays anchored to the bottom in normal, maximized, and full-screen windows. The map fits the remaining area at its original 2:1 aspect ratio, leaving margins when needed so controls remain visible on wide or short screens.
+The footer stays anchored to the bottom in normal, maximized, and full-screen windows. The map fills the area above it. Controls share a compact row when space permits and stack on narrower windows.
 
 ### Time navigation
 
 A single navigation group controls all map layers. Click the middle label to choose **5 Minutes**, **15 Minutes**, **30 Minutes**, **1 Hour** (the initial selection), **2 Hours**, **6 Hours**, **1 Sidereal Day**, or **24 Hours**.
 
-The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses. Playback advances **one selected interval per real second**, with ten smaller updates per second for intervals up to 6 Hours. **1 Sidereal Day** and **24 Hours** instead jump once per second without intermediate frames, keeping daylight shading from sweeping across the map. Elapsed-time calculation prevents cumulative timer drift, including the exact 23h 56m 4.09s sidereal day. Changing the interval while playing preserves time and direction and immediately applies the new rate.
+The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses.
 
-Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. The selected interval and playback state are not saved.
+- **5 Minutes through 6 Hours:** advance one selected interval per real second, divided into ten smaller updates for smoother motion. Elapsed time determines the displayed instant.
+- **1 Sidereal Day and 24 Hours:** show the first step immediately, then advance one complete interval every half-second. There are no intermediate frames, so daylight shading does not sweep across the map. Each timer tick advances exactly one interval, without repeated or skipped dates caused by rounding. A sidereal step is exactly **23h 56m 4.09s**.
+
+Changing the interval during playback preserves the displayed time and direction and applies the new rate; it does not add an immediate extra step.
+
+Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. Only one playback mode runs at a time: starting Earth rotation stops navigation animation, and starting navigation animation pauses Earth rotation. The selected interval, rotation speed, and playback state are not saved.
 
 The date/time beneath the controls is local to the computer and includes the UTC offset for the selected date. Steps are elapsed UTC durations, so the local wall-clock hour can change across daylight-saving transitions. The application starts in live mode on each launch; the selected time and playback state are not saved. Controls and layer switches share one compact row when space permits, and stack on narrower windows.
 
@@ -207,7 +215,7 @@ Click a place on the map to center it and smoothly zoom in. That geographic loca
 
 ### Earth's daily rotation
 
-The **globe-and-arrow button** in the footer plays Earth's daily rotation beneath the sky, at a selectable speed. The adjacent speed dropdown ranges from one simulated minute to eight simulated hours per real second; the default is **2 h/s** (24 hours in 12 seconds). Speed can change while paused or playing without jumping the selected time. Stars remain nearly fixed in the view while the continents pass beneath them. The Sun, Moon, and planets retain their independent motion against the stars. Daylight stays aligned with the Sun, rather than being painted permanently onto the moving land.
+The **globe-and-arrow button** in the footer plays Earth's daily rotation beneath the sky, at a selectable speed. The adjacent speed dropdown ranges from one simulated minute to eight simulated hours per real second; the default is **2 h/s** (24 hours in 12 seconds). Speed choices are **1, 5, 15, or 30 min/s**, and **1, 2, 4, or 8 h/s**. Here, h/s means simulated hours per real second. Speed can change while paused or playing without jumping the selected time. Stars remain nearly fixed in the view while the continents pass beneath them. The Sun, Moon, and planets retain their independent motion against the stars. Daylight stays aligned with the Sun, rather than being painted permanently onto the moving land.
 
 The globe button is highlighted during playback; click it again to pause. Pausing holds the selected time and sky-oriented view. Hour/day navigation still works in that view; manual steps stop continuous playback first. **Now** stops all playback, returns to current time, and restores the usual Earth-fixed view. **Escape** also pauses, and closing or hiding the window stops playback. A selected geographic location or body remains centered across navigation, rotation, and **Now**. Use **Fit map** to release tracking and watch Earth pass beneath the sky.
 
@@ -226,7 +234,7 @@ Edit [main.cpp](outputs/Daylight/source/main.cpp) to change:
 - **Horizon line:** the painter's pen color, alpha, and width in `nightImage()`.
 - **Moon illumination:** `moonImage()`.
 - **Sun appearance:** `sunImage()`.
-- **Update interval:** the timers configured in `main()`. Continuous playback speed choices are `rotationRates` in `Sky`; `rotationSpeedIndex` selects the initial rate.
+- **Update intervals:** the live refresh timer in `main()` and the playback timers in `Sky`. Navigation choices are `navigationIntervals` and `navigationLabels`; `intervalIndex` selects the initial choice. Continuous rotation speeds are `rotationRates`; `rotationSpeedIndex` selects the initial speed.
 
 Rebuild after changing C++, QML, or bundled assets.
 
@@ -258,7 +266,7 @@ The capture waits for the initial rendered layout before saving. During developm
 
 ## How to read the map
 
-The map uses an equirectangular projection, with Greenwich at the center. The markers show the geocentric points directly beneath the Sun, Moon, and five naked-eye planets, rather than the areas where those bodies are visible. Planet positions use the same apparent geocentric calculation as the Sun and Moon and update every ten seconds in live mode. Mercury is gray, Venus cream, Mars rust-colored, Jupiter banded, and Saturn ringed. Where markers overlap, the nearer body covers the farther one, including overlaps with the Sun and Moon. Their sizes are illustrative, not to scale, so marker overlaps do not predict actual transits or occultations.
+The map uses an equirectangular projection, with Greenwich at the center. The markers show the geocentric points directly beneath the Sun, Moon, and five naked-eye planets, rather than the areas where those bodies are visible. Planet positions use the same apparent geocentric calculation as the Sun and Moon and update every 30 seconds in live mode. Mercury is gray, Venus cream, Mars rust-colored, Jupiter banded, and Saturn ringed. Where markers overlap, the nearer body covers the farther one, including overlaps with the Sun and Moon. Their sizes are illustrative, not to scale, so marker overlaps do not predict actual transits or occultations.
 
 The horizon line uses a conventional solar-center altitude of approximately **−0.833°**, accounting for the Sun's upper edge and typical horizon refraction. Shading begins at this line, increases through early twilight, and reaches full night at a geometric solar altitude of **−18°**. It is a visual representation rather than a prediction of local sky brightness. See [NOAA's sunrise/sunset calculation notes](https://gml.noaa.gov/grad/solcalc/solareqns.PDF).
 

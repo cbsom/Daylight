@@ -37,17 +37,21 @@ current user’s `Software\Daylight\Daylight` registry settings.
 
 A single navigation group controls all map layers. Click the middle label to choose **5 Minutes**, **15 Minutes**, **30 Minutes**, **1 Hour** (the initial selection), **2 Hours**, **6 Hours**, **1 Sidereal Day**, or **24 Hours**.
 
-The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses. Playback advances **one selected interval per real second**, with ten smaller updates per second for intervals up to 6 Hours. **1 Sidereal Day** and **24 Hours** instead jump once per second without intermediate frames, keeping daylight shading from sweeping across the map. Elapsed-time calculation prevents cumulative timer drift, including the exact 23h 56m 4.09s sidereal day. Changing the interval while playing preserves time and direction and immediately applies the new rate.
+The main arrows move once by the selected interval. Each smaller outer section starts animation in that direction; pressing the active section again pauses.
 
-Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. The selected interval and playback state are not saved.
+- **5 Minutes through 6 Hours:** advance one selected interval per real second, divided into ten smaller updates for smoother motion. Elapsed time determines the displayed instant.
+- **1 Sidereal Day and 24 Hours:** show the first step immediately, then advance one complete interval every half-second. There are no intermediate frames, so daylight shading does not sweep across the map. Each timer tick advances exactly one interval, without repeated or skipped dates caused by rounding. A sidereal step is exactly **23h 56m 4.09s**.
+
+Changing the interval during playback preserves the displayed time and direction and applies the new rate; it does not add an immediate extra step.
+
+Manual stepping pauses playback first. **Escape** pauses; **Now** stops playback and returns to actual current time, with live updates every 30 seconds. All layers use the same displayed instant, including Moon phase and zodiac. Hover descriptions and Tab/Space/Enter navigation are available for the direction controls. Only one playback mode runs at a time: starting Earth rotation stops navigation animation, and starting navigation animation pauses Earth rotation. The selected interval, rotation speed, and playback state are not saved.
 
 Click the map to center and zoom into a place, which stays centered through time navigation and animation. Click the Sun, Moon, or a visible planet to follow that body instead; a small badge identifies the target. Use the wheel to zoom around the pointer, drag to select a new geographic center, and double-click or press **Fit map** to release tracking and reset. Wheel zoom keeps a followed body centered. Zoom is limited to 1-8x; longitude wraps and the camera cannot pan beyond the poles.
 
-The **globe-and-arrow button** in the footer plays Earth scrolling beneath the nearly fixed stars. The adjacent speed dropdown selects one simulated minute to eight simulated hours per real second (default **2 h/s**). Speed changes work while paused or playing without jumping the selected time. The Sun, Moon and planets retain their motion against the stars. Clicking the highlighted globe button pauses and holds this view; **Escape** pauses too. **Now** stops playback and restores current time in the usual Earth-fixed view. Selected locations and bodies stay centered through rotation, navigation, and **Now**; use **Fit map** to release tracking. Zoom and playback state are not saved.
+The **globe-and-arrow button** in the footer plays Earth scrolling beneath the nearly fixed stars. The adjacent speed dropdown selects one simulated minute to eight simulated hours per real second (default **2 h/s**). Speed choices are **1, 5, 15, or 30 min/s**, and **1, 2, 4, or 8 h/s**. Here, h/s means simulated hours per real second. Speed changes work while paused or playing without jumping the selected time. The Sun, Moon and planets retain their motion against the stars. Clicking the highlighted globe button pauses and holds this view; **Escape** pauses too. **Now** stops playback and restores current time in the usual Earth-fixed view. Selected locations and bodies stay centered through rotation, navigation, and **Now**; use **Fit map** to release tracking. Zoom and playback state are not saved.
 
 The footer stays at the bottom in normal, maximized, and full-screen windows.
-The map fits above it with its 2:1 aspect ratio preserved, adding margins where
-needed so the controls stay on-screen.
+The map fills the area above it; controls stack on narrower windows.
 
 ## Design
 
