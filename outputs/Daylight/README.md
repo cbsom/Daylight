@@ -1,5 +1,7 @@
 # Daylight
 
+<img width="1282" height="784" alt="Daylight_UJiLygmqMs" src="https://github.com/user-attachments/assets/5b59ebf1-e2f1-42a3-b065-4e701ce5e20c" />
+
 A fully offline Qt Quick desktop application with a high-resolution world map,
 daylight and twilight shading, the Sun and Moon, five planets, and the twelve
 traditional zodiac constellations. Each body or star is positioned above its
