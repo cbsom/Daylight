@@ -1,6 +1,13 @@
 # Earth & Sky
 
-![Earth & Sky — flat-map view](outputs/Earth-and-Sky/screenshots/flat-map.png)
+![Earth & Sky — flat-map view 1](outputs/Earth-and-Sky/screenshots/Earth-and-Sky-Screenshot-1.jpg)
+
+![Earth & Sky — globe-map view 1](outputs/Earth-and-Sky/screenshots/Earth-and-Sky-Screenshot-2.jpg)
+
+![Earth & Sky — flat-map view 2](outputs/Earth-and-Sky/screenshots/flat-map.png)
+
+![Earth & Sky — globe-map view 2](outputs/Earth-and-Sky/screenshots/globe.png)
+
 
 An offline desktop app for exploring Earth and the sky, with flat-map and globe views, daylight and twilight, the Sun, Moon, planets, and all 88 constellations.
 
