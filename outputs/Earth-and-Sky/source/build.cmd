@@ -11,6 +11,6 @@ if errorlevel 1 exit /b 1
 cmake --build "%~dp0build"
 if errorlevel 1 exit /b 1
 if not exist "%~dp0..\app" mkdir "%~dp0..\app"
-copy /y "%~dp0build\Daylight.exe" "%~dp0..\app\Daylight.exe"
-"%~1\bin\windeployqt.exe" --release --qmldir "%~dp0" --no-translations "%~dp0..\app\Daylight.exe"
+copy /y "%~dp0build\Earth-and-Sky.exe" "%~dp0..\app\Earth-and-Sky.exe"
+"%~1\bin\windeployqt.exe" --release --qmldir "%~dp0" --no-translations "%~dp0..\app\Earth-and-Sky.exe"
 exit /b %errorlevel%

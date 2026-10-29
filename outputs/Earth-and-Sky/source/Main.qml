@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Window
+import EarthSky.Globe 1.0
 
 Window {
     id: window
@@ -8,21 +9,46 @@ Window {
     minimumWidth: 720
     minimumHeight: 472
     visible: true
-    title: "Daylight"
+    title: "Earth & Sky"
     color: "#080f18"
+    property bool globeMode: false
+    readonly property var skyModel: sky
     onClosing: sky.stopAnimation()
     onVisibleChanged: { if (!visible) sky.stopAnimation() }
-    Shortcut { sequence: "Escape"; onActivated: sky.stopAnimation() }
+    Shortcut { sequence: "Escape"; enabled: !intervalMenu.visible; onActivated: sky.stopAnimation() }
 
+    Connections {
+        target: sky
+        function onFrameRebased(turns) {
+            mapViewport.resettingFollow = true
+            mapViewport.centerX -= turns
+            mapViewport.resettingFollow = false
+            globe.yaw -= turns * 360
+        }
+    }
     // Camera coordinates are normalized and longitude wraps rather than clamping.
     Item {
         id: mapViewport
+        visible: !window.globeMode
         objectName: "mapViewport"
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: footer.top
         clip: true
+        property bool horizonActive: false
+        property real observerLongitude: 0.5
+        property real observerLatitude: 0
+        function setHorizonAt(px, py) {
+            const longitude = wrapUnit(cameraX - sky.earthOffset + (px - width / 2) / map.width)
+            const latitude = Math.max(-90, Math.min(90, 90 - 180 * (boundedCenterY + (py - height / 2) / map.height)))
+            setObserver(longitude * 360 - 180, latitude)
+        }
+        function setObserver(longitude, latitude) {
+            observerLongitude = wrapUnit((longitude + 180) / 360); observerLatitude = latitude
+            horizonActive = true
+            beginFollow("place", observerLongitude, (90 - latitude) / 180, "", zoom)
+        }
         property real zoom: 1
         property real centerX: 0.5
         property real centerY: 0.5
@@ -46,7 +72,7 @@ Window {
         readonly property real cameraX: centerX + wrapDelta(targetX - centerX) * followBlend
         readonly property real cameraY: centerY + (targetY - centerY) * followBlend
         readonly property real boundedCenterY: Math.max(0.5 / zoom, Math.min(1 - 0.5 / zoom, cameraY))
-        readonly property bool fitted: followKind === "none" && Math.abs(zoom - 1) < 0.001 && Math.abs(centerX - 0.5) < 0.001 && Math.abs(centerY - 0.5) < 0.001
+        readonly property bool fitted: !horizonActive && followKind === "none" && Math.abs(zoom - 1) < 0.001 && Math.abs(centerX - 0.5) < 0.001 && Math.abs(centerY - 0.5) < 0.001
         function wrapUnit(value) { return ((value % 1) + 1) % 1 }
         function wrapDelta(value) { return wrapUnit(value + 0.5) - 0.5 }
         function releaseFollow() {
@@ -65,10 +91,10 @@ Window {
             zoom = nextZoom
             followBlend = 1
         }
-        function fitMap() { releaseFollow(); zoom = 1; centerX = 0.5; centerY = 0.5 }
+        function fitMap() { horizonActive = false; releaseFollow(); zoom = 1; centerX = 0.5; centerY = 0.5 }
         function zoomAt(px, py, requested, recenter) {
             const next = Math.max(1, Math.min(8, requested))
-            if (next === 1) { fitMap(); return }
+            if (next === 1 && !horizonActive) { fitMap(); return }
             if (followKind === "body" && !recenter) { zoom = next; return }
             const pointX = cameraX + (px - width / 2) / (width * zoom)
             const pointY = boundedCenterY + (py - height / 2) / (height * zoom)
@@ -91,11 +117,7 @@ Window {
             }
             return null
         }
-        function selectAt(px, py) {
-            const marker = bodyAt(px, py)
-            if (marker) beginFollow("body", 0, 0, marker.name, Math.min(8, Math.max(2, zoom * 2)))
-            else zoomAt(px, py, zoom * 2, true)
-        }
+        function selectAt(px, py) { setHorizonAt(px, py) }
         function lockPlaceAtCenter() {
             beginFollow("place", cameraX - sky.earthOffset, boundedCenterY, "", zoom)
         }
@@ -136,8 +158,8 @@ Window {
                     }
                     Image {
                         anchors.fill: parent
-                        visible: constellationsToggle.checked
-                        source: visible ? "image://earth/zodiac/" + (labelsToggle.checked ? "labels/" : "no-labels/") + sky.revision : ""
+                        visible: constellationsToggle.checked || allConstellationsToggle.checked
+                        source: visible ? "image://earth/zodiac/" + (allConstellationsToggle.checked ? "all/" : "") + (labelsToggle.checked ? "labels/" : "no-labels/") + sky.revision : ""
                         sourceSize: Qt.size(map.skyRasterWidth, map.skyRasterHeight)
                         cache: true
                         smooth: true
@@ -217,6 +239,70 @@ Window {
                 }
             }
         }
+        Canvas {
+            id: horizonOverlay
+            objectName: "horizonOverlay"
+            anchors.fill: parent
+            visible: mapViewport.horizonActive
+            z: 2
+            onVisibleChanged: if (visible) requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            Connections {
+                target: mapViewport
+                function onObserverLatitudeChanged() { horizonOverlay.requestPaint() }
+                function onObserverLongitudeChanged() { horizonOverlay.requestPaint() }
+                function onBoundedCenterYChanged() { horizonOverlay.requestPaint() }
+                function onZoomChanged() { horizonOverlay.requestPaint() }
+                function onCameraXChanged() { horizonOverlay.requestPaint() }
+            }
+            onPaint: {
+                const c = getContext("2d")
+                c.clearRect(0, 0, width, height)
+                if (!visible) return
+                const r = Math.PI / 180, phi = mapViewport.observerLatitude * r
+                const equator = Math.abs(phi) < 1e-8, north = phi > 0
+                const mapWidth = map.width, mapHeight = map.height
+                function deltaAt(x) {
+                    const lon = mapViewport.cameraX - sky.earthOffset + (x - width / 2) / mapWidth
+                    return mapViewport.wrapDelta(lon - mapViewport.observerLongitude) * 2 * Math.PI
+                }
+                function edgeY(x) {
+                    const lat = north ? Math.atan2(-Math.cos(phi) * Math.cos(deltaAt(x)), Math.sin(phi))
+                                      : Math.atan2(Math.cos(phi) * Math.cos(deltaAt(x)), -Math.sin(phi))
+                    return height / 2 + ((90 - lat / r) / 180 - mapViewport.boundedCenterY) * mapHeight
+                }
+                c.fillStyle = "rgba(8,15,24,0.84)"
+                if (equator) {
+                    for (let x = 0; x < width; ++x)
+                        if (Math.cos(deltaAt(x + 0.5)) < 0) c.fillRect(x, 0, 1, height)
+                } else {
+                    c.beginPath(); c.moveTo(0, north ? height : 0)
+                    for (let x = 0; x <= width; ++x) c.lineTo(x, edgeY(x))
+                    c.lineTo(width, north ? height : 0); c.closePath(); c.fill()
+                }
+                c.strokeStyle = "rgba(146,191,204,0.65)"; c.lineWidth = 1
+                c.beginPath()
+                if (equator) {
+                    for (let side of [-1, 1]) {
+                        const x = width / 2 + mapViewport.wrapDelta(mapViewport.observerLongitude + sky.earthOffset + side / 4 - mapViewport.cameraX) * mapWidth
+                        c.moveTo(x, 0); c.lineTo(x, height)
+                    }
+                } else {
+                    for (let x = 0; x <= width; ++x) {
+                        const y = edgeY(x)
+                        if (x === 0) c.moveTo(x, y); else c.lineTo(x, y)
+                    }
+                }
+                c.stroke()
+                const x = width / 2 + mapViewport.wrapDelta(mapViewport.observerLongitude + sky.earthOffset - mapViewport.cameraX) * mapWidth
+                const y = height / 2 + ((90 - mapViewport.observerLatitude) / 180 - mapViewport.boundedCenterY) * mapHeight
+                c.strokeStyle = "#d2e5ec"; c.lineWidth = 1.3
+                c.beginPath(); c.arc(x, y, 4, 0, 2 * Math.PI); c.stroke()
+                c.beginPath(); c.moveTo(x - 9, y); c.lineTo(x - 5, y); c.moveTo(x + 5, y); c.lineTo(x + 9, y)
+                c.moveTo(x, y - 9); c.lineTo(x, y - 5); c.moveTo(x, y + 5); c.lineTo(x, y + 9); c.stroke()
+            }
+        }
         MouseArea {
             id: mapInput
             objectName: "mapInput"
@@ -250,55 +336,57 @@ Window {
             }
             onCanceled: mapViewport.dragging = false
             onClicked: mouse => { if (!moved) mapViewport.selectAt(mouse.x, mouse.y) }
-            onDoubleClicked: mouse => { mouse.accepted = true; mapViewport.fitMap() }
+            onDoubleClicked: mouse => { mouse.accepted = true; mapViewport.selectAt(mouse.x, mouse.y) }
             onWheel: wheel => {
                 const delta = wheel.angleDelta.y !== 0 ? wheel.angleDelta.y / 120 : wheel.pixelDelta.y / 40
                 if (delta !== 0) mapViewport.zoomAt(wheel.x, wheel.y, mapViewport.zoom * Math.pow(1.25, delta), false)
                 wheel.accepted = true
             }
         }
-        Rectangle {
-            visible: mapViewport.followKind !== "none" && mapViewport.zoom > 1.001
-            z: 10
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.margins: 10
-            width: trackingCaption.implicitWidth + 18
-            height: 26
-            radius: 5
-            color: "#dd101d29"
-            border.color: "#344754"
-            Text {
-                id: trackingCaption
-                anchors.centerIn: parent
-                text: mapViewport.followKind === "body" ? "Following " + mapViewport.followBody : "Location locked"
-                font.family: "Segoe UI"
-                font.pixelSize: 10
-                color: "#9bb5c4"
+    }
+
+    GlobeView {
+        id: globe
+        objectName: "globeView"
+        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: footer.top
+        visible: window.globeMode
+        sky: window.skyModel
+        layers: ({sun: sunToggle.checked, moon: moonToggle.checked, planets: planetsToggle.checked,
+                  zodiac: constellationsToggle.checked, allConstellations: allConstellationsToggle.checked,
+                  latitudeLines: latitudeLinesToggle.checked, labels: labelsToggle.checked})
+        horizonActive: mapViewport.horizonActive
+        observer: Qt.point(mapViewport.observerLongitude * 360 - 180, mapViewport.observerLatitude)
+        onLocationSelected: (longitude, latitude) => { mapViewport.setObserver(longitude, latitude); globe.centerOn(longitude, latitude) }
+    }
+    Rectangle {
+        anchors.left: parent.left; anchors.top: parent.top; anchors.margins: 10
+        width: 112; height: 28; radius: 6; z: 20
+        color: "#dd101d29"; border.color: "#344754"
+        TimeAction {
+            objectName: "flatMapViewButton"
+            x: 0; width: 56; height: 28
+            label: "Flat map"; highlighted: !window.globeMode
+            description: "View the sky above a flat world map"
+            onTriggered: window.globeMode = false
+        }
+        Rectangle { x: 56; y: 7; width: 1; height: 14; color: "#344754" }
+        TimeAction {
+            objectName: "globeViewButton"
+            x: 56; width: 56; height: 28
+            label: "Globe"; highlighted: window.globeMode
+            description: "View Earth inside a celestial sphere; drag to turn and scroll to zoom"
+            onTriggered: {
+                window.globeMode = true
+                if (mapViewport.horizonActive) globe.centerOn(mapViewport.observerLongitude * 360 - 180, mapViewport.observerLatitude)
             }
         }
-        Row {
-            id: mapControls
-            z: 10
-            MouseArea { parent: mapControls.parent; x: mapControls.x; y: mapControls.y; width: mapControls.width; height: mapControls.height; z: 9; onWheel: wheel => { wheel.accepted = true } }
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.margins: 10
-            spacing: 6
-            Rectangle {
-                visible: !mapViewport.fitted
-                width: 62; height: 28; radius: 6
-                color: "#dd101d29"
-                border.color: "#344754"
-                TimeAction {
-                    objectName: "fitMapButton"
-                    anchors.fill: parent
-                    label: "Fit map"
-                    description: "Fit the whole map (or double-click)"
-                    onTriggered: mapViewport.fitMap()
-                }
-            }
-        }
+    }
+    Text {
+        visible: window.globeMode
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 15
+        text: "Drag to turn · Scroll to zoom"
+        font.family: "Segoe UI"; font.pixelSize: 11; color: "#8197aa"
     }
     component VisibilityToggle: Item {
         id: control
@@ -382,6 +470,8 @@ Window {
         property bool hintReady: false
         property point hintOrigin: Qt.point(0, 0)
         signal triggered()
+        signal held()
+        property bool holdEnabled: false
         width: animate ? 21 : direction === 0 ? 48 : 33
         height: 32
         activeFocusOnTab: true
@@ -391,7 +481,7 @@ Window {
         Accessible.onPressAction: triggered()
         Keys.onSpacePressed: event => { triggered(); event.accepted = true }
         Keys.onReturnPressed: event => { triggered(); event.accepted = true }
-        Keys.onEscapePressed: event => { sky.stopAnimation(); event.accepted = true }
+        Keys.onEscapePressed: event => { if (intervalMenu.visible) intervalMenu.visible = false; else sky.stopAnimation(); event.accepted = true }
         Rectangle {
             anchors.fill: parent
             anchors.margins: 1
@@ -449,7 +539,10 @@ Window {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: { action.forceActiveFocus(Qt.MouseFocusReason); action.triggered() }
+            property bool didHold: false
+            onPressed: didHold = false
+            onPressAndHold: { if (action.holdEnabled) { didHold = true; action.forceActiveFocus(Qt.MouseFocusReason); action.held() } }
+            onClicked: { if (!didHold) { action.forceActiveFocus(Qt.MouseFocusReason); action.triggered() } }
             onDoubleClicked: event => { event.accepted = true; action.triggered() }
             onContainsMouseChanged: { if (!containsMouse) action.hintReady = false }
         }
@@ -487,134 +580,80 @@ Window {
             }
         }
     }
-    component SplitTimeButton: Rectangle {
-        id: split
-        property int direction
-        property string unit
-        property string stepDescription
-        readonly property bool playing: sky.animationUnit === unit && sky.animationDirection === direction
-        width: 54; height: 32
-        radius: 6
-        color: "#121f2b"
-        border.color: playing ? "#59788d" : "#2a3d4c"
-        Behavior on border.color { ColorAnimation { duration: 120 } }
+    component DirectionGlobeButton: Rectangle {
+        id: control
+        property int direction: 1
+        readonly property bool playing: sky.animationDirection === direction
+        width: 62; height: 34; radius: 6
+        color: "#121f2b"; border.color: playing ? "#59788d" : "#2a3d4c"
         TimeAction {
-            id: stepPart
-            x: split.direction < 0 ? 21 : 0
-            direction: split.direction
-            objectName: (direction < 0 ? "previous" : "next") + (split.unit === "day" ? "Day" : (split.unit === "hour" || split.unit === "navigation") ? "Hour" : "Sidereal") + "Button"
-            description: (direction < 0 ? "Back " : "Forward ") + split.stepDescription
-            onTriggered: sky.stepTime(split.direction, split.unit)
+            id: stepAction
+            x: control.direction < 0 ? 21 : 0
+            width: 41; height: parent.height
+            objectName: control.direction < 0 ? "stepBackwardButton" : "stepForwardButton"
+            highlighted: control.playing
+            holdEnabled: true
+            description: (control.direction < 0 ? "Step backward " : "Step forward ") + sky.combinedLabel + (sky.earthMode ? "; rotate Earth" : "; rotate sky") + ". Hold or use the outer play section to animate."
+            onTriggered: sky.navigate(control.direction, false)
+            onHeld: sky.navigate(control.direction, true)
+        }
+        Canvas {
+            z: 1
+            x: stepAction.x + (stepAction.width - width) / 2
+            y: 3; width: 32; height: 28
+            onPaint: {
+                const c = getContext("2d");c.clearRect(0,0,width,height);c.save()
+                if (control.direction < 0) { c.translate(width,0);c.scale(-1,1) }
+                c.lineWidth=1;c.lineCap="round";c.strokeStyle="#a4bfcd"
+                c.beginPath();c.ellipse(7,4,18,20);c.stroke();c.beginPath();c.ellipse(12,4,8,20);c.stroke()
+                c.strokeStyle="#698b9e";c.beginPath();c.moveTo(8,10);c.lineTo(24,10);c.moveTo(8,18);c.lineTo(24,18);c.stroke()
+                c.strokeStyle="#c0d7e1";c.lineWidth=1.4;c.beginPath();c.moveTo(6,11);c.bezierCurveTo(-3,21,34,22,27,12);c.stroke()
+                c.beginPath();c.moveTo(24,14);c.lineTo(27,11);c.lineTo(30,15);c.stroke();c.restore()
+            }
         }
         TimeAction {
-            x: split.direction < 0 ? 0 : 33
-            direction: split.direction
-            animate: true
-            playing: split.playing
-            objectName: "animate" + (direction < 0 ? "Backward" : "Forward") + (split.unit === "day" ? "Day" : (split.unit === "hour" || split.unit === "navigation") ? "Hour" : "Sidereal") + "Button"
-            description: (playing ? "Pause" : direction < 0 ? "Animate backward" : "Animate forward") + " by " + split.stepDescription + " per second"
-            onTriggered: sky.toggleAnimation(split.direction, split.unit)
+            x: control.direction < 0 ? 0 : 41
+            width: 21; height: parent.height
+            direction: control.direction; animate: true; playing: control.playing
+            objectName: control.direction < 0 ? "playBackwardButton" : "playForwardButton"
+            description: (playing ? "Pause" : control.direction < 0 ? "Animate backward" : "Animate forward") + " · " + sky.combinedLabel + (sky.combinedIndex >= 9 ? " twice per second" : " per second")
+            onTriggered: sky.navigate(control.direction, true)
         }
-        Rectangle {
-            x: split.direction < 0 ? 21 : 33
-            y: 7; width: 1; height: parent.height - 14
-            color: "#2a3d4c"
-        }
-    }
-    component TimeStepGroup: Row {
-        property string unit
-        property string label
-        property string stepDescription
-        spacing: 6
-        SplitTimeButton { direction: -1; unit: parent.unit; stepDescription: parent.stepDescription }
-        Rectangle {
-            anchors.verticalCenter: parent.verticalCenter
-            width: 114; height: 32; radius: 5
-            color: intervalHit.containsMouse ? "#20303f" : "transparent"
-            Text {
-                anchors.centerIn: parent
-                text: sky.navigationLabel + "  \u2304"
-                font.family: "Segoe UI"; font.pixelSize: 11; color: "#a5b9c8"
-            }
-            MouseArea {
-                id: intervalHit
-                objectName: "intervalSelector"
-                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                onClicked: intervalMenu.visible = !intervalMenu.visible
-            }
-            activeFocusOnTab: true
-            Accessible.role: Accessible.ComboBox
-            Accessible.name: "Time interval: " + sky.navigationLabel
-            Keys.onSpacePressed: intervalMenu.visible = !intervalMenu.visible
-            Keys.onReturnPressed: intervalMenu.visible = !intervalMenu.visible
-        }
-        SplitTimeButton { direction: 1; unit: parent.unit; stepDescription: parent.stepDescription }
+        Rectangle { x: control.direction < 0 ? 21 : 41; y: 7; width: 1; height: parent.height - 14; color: "#2a3d4c" }
     }
 
     Item {
         id: intervalMenu
+        property real popupX: 0
+        onVisibleChanged: { if (visible) popupX = Math.max(8, Math.min(window.width - 168, intervalSelectorRect.mapToItem(window.contentItem, 0, 0).x)) }
         objectName: "intervalMenu"
         anchors.fill: parent
         z: 80
         visible: false
         MouseArea { anchors.fill: parent; onClicked: intervalMenu.visible = false; onWheel: wheel => { wheel.accepted = true } }
         Rectangle {
-            x: footer.sideMargin + 60
-            y: footer.y - height - 6
+            x: intervalMenu.popupX
+            y: Math.max(8, footer.y - height - 6)
             width: 160; height: intervalChoices.height + 8
             radius: 6; color: "#12212d"; border.color: "#3c5364"
             Column {
                 id: intervalChoices
                 x: 4; y: 4
                 Repeater {
-                    model: ["5 Minutes", "15 Minutes", "30 Minutes", "1 Hour", "2 Hours", "6 Hours", "1 Sidereal Day", "24 Hours"]
+                    model: sky.combinedOptions
                     Rectangle {
                         required property int index
                         required property string modelData
                         objectName: "intervalChoice" + index
-                        width: 152; height: 30; radius: 4
-                        color: choiceHit.containsMouse ? "#2a4152" : sky.navigationIndex === index ? "#203747" : "transparent"
-                        Text { anchors.verticalCenter: parent.verticalCenter; x: 10; text: (sky.navigationIndex === index ? "\u2713  " : "     ") + modelData; font.family: "Segoe UI"; font.pixelSize: 11; color: "#c1d2df" }
-                        MouseArea { id: choiceHit; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { sky.selectInterval(index); intervalMenu.visible = false } }
+                        width: 152; height: 27; radius: 4
+                        color: choiceHit.containsMouse ? "#2a4152" : sky.combinedIndex === index ? "#203747" : "transparent"
+                        Text { anchors.verticalCenter: parent.verticalCenter; x: 10; text: (sky.combinedIndex === index ? "\u2713  " : "     ") + modelData; font.family: "Segoe UI"; font.pixelSize: 11; color: "#c1d2df" }
+                        MouseArea { id: choiceHit; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { sky.selectCombinedInterval(index); intervalMenu.visible = false } }
                     }
                 }
             }
         }
         Shortcut { sequence: "Escape"; enabled: intervalMenu.visible; onActivated: intervalMenu.visible = false }
-    }
-
-    Item {
-        id: rotationMenu
-        property real popupX: 0
-        onVisibleChanged: { if (visible) popupX = Math.max(8, Math.min(window.width - 168, rotationSelector.mapToItem(window.contentItem, 0, 0).x)) }
-        objectName: "rotationMenu"
-        anchors.fill: parent
-        z: 80
-        visible: false
-        MouseArea { anchors.fill: parent; onClicked: rotationMenu.visible = false; onWheel: wheel => { wheel.accepted = true } }
-        Rectangle {
-            x: rotationMenu.popupX
-            y: footer.y - height - 6
-            width: 160; height: rotationChoices.height + 8
-            radius: 6; color: "#12212d"; border.color: "#3c5364"
-            Column {
-                id: rotationChoices
-                x: 4; y: 4
-                Repeater {
-                    model: ["1 min/s", "5 min/s", "15 min/s", "30 min/s", "1 h/s", "2 h/s", "4 h/s", "8 h/s"]
-                    Rectangle {
-                        required property int index
-                        required property string modelData
-                        objectName: "rotationChoice" + index
-                        width: 152; height: 30; radius: 4
-                        color: choiceHit.containsMouse ? "#2a4152" : sky.rotationIndex === index ? "#203747" : "transparent"
-                        Text { anchors.verticalCenter: parent.verticalCenter; x: 10; text: (sky.rotationIndex === index ? "\u2713  " : "     ") + modelData; font.family: "Segoe UI"; font.pixelSize: 11; color: "#c1d2df" }
-                        MouseArea { id: choiceHit; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { sky.selectRotationSpeed(index); rotationMenu.visible = false } }
-                    }
-                }
-            }
-        }
-        Shortcut { sequence: "Escape"; enabled: rotationMenu.visible; onActivated: rotationMenu.visible = false }
     }
 
     Rectangle {
@@ -626,32 +665,36 @@ Window {
         readonly property int verticalPadding: 5
         readonly property bool singleRow: width >= timeControls.width + togglesRow.width + sideMargin * 2 + 24
         readonly property real controlsBottom: Math.max(timeControls.y + timeControls.height, togglesRow.y + togglesRow.height)
-        readonly property bool separateAttributionRow: attribution.x < displayedTimeLabel.x + displayedTimeLabel.implicitWidth + 16
-        height: Math.ceil(Math.max(displayedTimeLabel.y + displayedTimeLabel.implicitHeight,
-                                   attribution.y + attribution.implicitHeight) + verticalPadding)
+        readonly property real infoBottom: coordinatesLabel.visible ? coordinatesLabel.y + coordinatesLabel.implicitHeight : displayedTimeLabel.y + displayedTimeLabel.implicitHeight
+        height: Math.ceil(attribution.y + attribution.implicitHeight + 7)
         color: "#0b131d"
         Rectangle { width: parent.width; height: 1; color: "#1b2936" }
         Text {
             id: titleText
             anchors.left: parent.left
             anchors.leftMargin: footer.sideMargin
-            y: displayedTimeLabel.y + 1
-            text: "DAYLIGHT"
+            y: attribution.y
+            text: "EARTH & SKY"
             font.family: "Segoe UI"
             font.pixelSize: 10
             font.letterSpacing: 2
             color: "#8197aa"
         }
+        Text {
+            x: togglesRow.x; y: togglesRow.y - 16
+            text: "LAYERS"; font.family: "Segoe UI"; font.pixelSize: 9; font.letterSpacing: 1.2; color: "#758e9f"
+        }
         Row {
             id: togglesRow
             anchors.right: parent.right
             anchors.rightMargin: footer.sideMargin
-            y: footer.singleRow ? footer.verticalPadding : timeControls.y + timeControls.height + 6
+            y: footer.singleRow ? footer.verticalPadding + 32 : timeControls.y + timeControls.height + 20
             spacing: window.width < 850 ? 12 : 20
             VisibilityToggle { id: sunToggle; label: "Sun"; settingsKey: "sun" }
             VisibilityToggle { id: moonToggle; label: "Moon"; settingsKey: "moon" }
             VisibilityToggle { id: planetsToggle; label: "Planets"; settingsKey: "planets" }
-            VisibilityToggle { id: constellationsToggle; label: "Constellations"; settingsKey: "constellations" }
+            VisibilityToggle { id: constellationsToggle; objectName: "zodiacToggle"; label: "Zodiac"; settingsKey: "constellations" }
+            VisibilityToggle { id: allConstellationsToggle; objectName: "allConstellationsToggle"; label: "All constellations"; settingsKey: "allConstellations" }
             VisibilityToggle { id: latitudeLinesToggle; objectName: "latitudeLinesToggle"; label: "Latitude lines"; settingsKey: "latitudeLines" }
             VisibilityToggle { id: labelsToggle; label: "Labels"; settingsKey: "labels" }
         }
@@ -660,62 +703,76 @@ Window {
             anchors.left: parent.left
             anchors.leftMargin: footer.sideMargin
             y: footer.verticalPadding
-            spacing: 30
-            TimeStepGroup { unit: "navigation"; label: sky.navigationLabel; stepDescription: sky.navigationLabel }
-            Row {
-                spacing: 4
-                Rectangle {
-                    width: 36; height: 32; radius: 6
-                    color: sky.rotating ? "#203b4b" : "#121f2b"
-                    border.color: sky.rotating ? "#59788d" : "#2a3d4c"
-                    Canvas {
-                        anchors.centerIn: parent
-                        width: 30; height: 28
-                        onPaint: {
-                            const c = getContext("2d")
-                            c.clearRect(0, 0, width, height)
-                            c.strokeStyle = "#a4bfcd"; c.lineWidth = 1; c.lineCap = "round"
-                            c.beginPath(); c.ellipse(6, 4, 18, 20); c.stroke()
-                            c.beginPath(); c.ellipse(11, 4, 8, 20); c.stroke()
-                            c.strokeStyle = "#698b9e"
-                            c.beginPath(); c.moveTo(7, 10); c.lineTo(23, 10); c.moveTo(7, 18); c.lineTo(23, 18); c.stroke()
-                            c.strokeStyle = "#c0d7e1"; c.lineWidth = 1.4
-                            c.beginPath(); c.moveTo(5, 11); c.bezierCurveTo(-4, 21, 33, 22, 26, 12); c.stroke()
-                            c.beginPath(); c.moveTo(23, 14); c.lineTo(26, 11); c.lineTo(29, 15); c.stroke()
+            height: 65
+            spacing: 18
+            Item {
+                width: 272; height: 65
+                Row {
+                    x: (parent.width - width) / 2; spacing: 4
+                    Repeater {
+                        model: ["Rotate Sky", "Rotate Earth"]
+                        Rectangle {
+                            required property int index
+                            required property string modelData
+                            width: 112; height: 24; radius: 5
+                            color: sky.earthMode === (index === 1) ? "#203747" : "transparent"
+                            border.color: sky.earthMode === (index === 1) ? "#496779" : "#263846"
+                            TimeAction {
+                                anchors.fill: parent
+                                objectName: index === 0 ? "rotateSkyModeButton" : "rotateEarthModeButton"
+                                label: modelData
+                                Accessible.role: Accessible.RadioButton
+                                Accessible.checkable: true
+                                Accessible.checked: sky.earthMode === (index === 1)
+                                highlighted: sky.earthMode === (index === 1)
+                                description: index === 0 ? "Rotate the sky over a fixed Earth. Changing modes pauses playback." : "Rotate Earth beneath the sky. Changing modes pauses playback."
+                                onTriggered: sky.setEarthMode(index === 1)
+                            }
                         }
                     }
-                    TimeAction {
-                        objectName: "earthRotationButton"
-                        anchors.fill: parent
-                        description: sky.rotating ? "Pause Earth rotation" : "Rotate Earth at " + sky.rotationSpeedLabel
-                        highlighted: sky.rotating
-                        onTriggered: sky.toggleEarthRotation()
-                    }
                 }
-                Rectangle {
-                    id: rotationSelector
-                    width: 78; height: 32; radius: 5
-                    color: rotationHit.containsMouse ? "#20303f" : "transparent"
-                    Text { objectName: "rotationSpeedLabel"; anchors.centerIn: parent; text: sky.rotationSpeedLabel + "  \u2304"; font.family: "Segoe UI"; font.pixelSize: 11; color: "#a5b9c8" }
-                    MouseArea { id: rotationHit; objectName: "rotationSpeedSelector"; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: rotationMenu.visible = !rotationMenu.visible }
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.ComboBox
-                    Accessible.name: "Earth rotation speed: " + sky.rotationSpeedLabel
-                    Keys.onSpacePressed: rotationMenu.visible = !rotationMenu.visible
-                    Keys.onReturnPressed: rotationMenu.visible = !rotationMenu.visible
+                Row {
+                    y: 31; spacing: 8
+                    DirectionGlobeButton { direction: -1 }
+                    Rectangle {
+                        id: intervalSelectorRect
+                        width: 132; height: 34; radius: 5
+                        color: intervalHit.containsMouse ? "#20303f" : "#101c27"
+                        Text { anchors.centerIn: parent; text: sky.combinedLabel + "  \u2304"; font.family: "Segoe UI"; font.pixelSize: 11; color: "#b4c8d5" }
+                        MouseArea { id: intervalHit; objectName: "intervalSelector"; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: intervalMenu.visible = !intervalMenu.visible }
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ComboBox
+                        Accessible.name: "Rotation interval: " + sky.combinedLabel
+                        Keys.onEscapePressed: event => { intervalMenu.visible = false; event.accepted = true }
+                        Keys.onSpacePressed: intervalMenu.visible = !intervalMenu.visible
+                        Keys.onReturnPressed: intervalMenu.visible = !intervalMenu.visible
+                    }
+                    DirectionGlobeButton { direction: 1 }
                 }
             }
-
             Rectangle {
-                width: 48; height: 32; radius: 6
-                color: "#121f2b"
-                border.color: sky.live ? "#506d80" : "#2a3d4c"
+                y: 32; width: 66; height: 32; radius: 6
+                color: "#121f2b"; border.color: "#2a3d4c"
                 TimeAction {
-                    objectName: "nowButton"
-                    label: "Now"
-                    description: "Return to the current live sky"
+                    objectName: "fullMapButton"
+                    anchors.fill: parent
+                    label: window.globeMode ? "Full globe" : "Full map"
+                    description: "Fit the whole view and exit My Horizon; keep the displayed time"
+                    enabled: window.globeMode || !mapViewport.fitted
+                    opacity: enabled ? 1 : 0.45
+                    onTriggered: { mapViewport.fitMap(); globe.fitView() }
+                }
+            }
+            Rectangle {
+                y: 32; width: 74; height: 32; radius: 6
+                color: "#121f2b"; border.color: sky.live ? "#506d80" : "#2a3d4c"
+                TimeAction {
+                    objectName: "resetButton"
+                    anchors.fill: parent
+                    label: "\u21bb  Reset"
+                    description: "Reset to the current time and full map, and stop playback"
                     highlighted: sky.live
-                    onTriggered: sky.goToNow()
+                    onTriggered: { sky.goToNow(); mapViewport.fitMap(); globe.fitView(); intervalMenu.visible = false }
                 }
             }
         }
@@ -723,17 +780,27 @@ Window {
             id: displayedTimeLabel
             objectName: "displayedTimeLabel"
             anchors.horizontalCenter: parent.horizontalCenter
-            y: footer.controlsBottom + 6
+            y: footer.controlsBottom + 8
             text: sky.displayedTime
             font.family: "Segoe UI"
-            font.pixelSize: 11
-            color: "#a5b4bf"
+            font.pixelSize: 15
+            font.weight: Font.DemiBold
+            color: "#d5e3ee"
+        }
+        Text {
+            id: coordinatesLabel
+            objectName: "coordinatesLabel"
+            visible: mapViewport.horizonActive
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: displayedTimeLabel.y + displayedTimeLabel.implicitHeight + 3
+            text: "My Horizon  ·  Latitude " + Math.abs(mapViewport.observerLatitude).toFixed(2) + "° " + (mapViewport.observerLatitude >= 0 ? "N" : "S") + "  ·  Longitude " + Math.abs(mapViewport.observerLongitude * 360 - 180).toFixed(2) + "° " + (mapViewport.observerLongitude >= 0.5 ? "E" : "W")
+            font.family: "Segoe UI"; font.pixelSize: 11; color: "#99bdce"
         }
         Text {
             id: attribution
             anchors.right: parent.right
             anchors.rightMargin: footer.sideMargin
-            y: footer.separateAttributionRow ? displayedTimeLabel.y + displayedTimeLabel.implicitHeight + 4 : displayedTimeLabel.y
+            y: footer.infoBottom + 6
             text: "Map: NASA Blue Marble  ·  Moon: Gregory H. Revera"
             font.family: "Segoe UI"
             font.pixelSize: 10

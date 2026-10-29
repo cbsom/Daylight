@@ -3,6 +3,9 @@
 #include <QQmlContext>
 #include <QQuickImageProvider>
 #include <QQuickWindow>
+#include <QQuickPaintedItem>
+#include <QMouseEvent>
+#include <QWheelEvent>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QTimer>
@@ -134,7 +137,7 @@ const QImage &fullMoonTexture()
 {
     static const QImage texture = []
     {
-        QImage photo(":/qt/qml/Daylight/assets/moon-full.jpg");
+        QImage photo(":/qt/qml/EarthSky/assets/moon-full.jpg");
         if (photo.isNull())
             qFatal("Full Moon photograph is missing");
         photo = photo.convertToFormat(QImage::Format_RGB32);
@@ -228,7 +231,7 @@ QImage planetImage(int index) {
     return image;
 }
 QImage dayImage() {
-    QImage image(":/qt/qml/Daylight/assets/world_changed.jpg");
+    QImage image(":/qt/qml/EarthSky/assets/world.jpg");
     image = image.convertToFormat(QImage::Format_RGB32);
     int lift[256];
     for (int i = 0; i < 256; ++i)
@@ -273,9 +276,13 @@ class Sky : public QObject
     Q_PROPERTY(QString rotationSpeedLabel READ rotationSpeedLabel NOTIFY changed)
     Q_PROPERTY(bool canSlowRotation READ canSlowRotation NOTIFY changed)
     Q_PROPERTY(bool canSpeedRotation READ canSpeedRotation NOTIFY changed)
+    Q_PROPERTY(bool earthMode READ earthMode WRITE setEarthMode NOTIFY changed)
+    Q_PROPERTY(int combinedIndex READ combinedIndex NOTIFY changed)
+    Q_PROPERTY(QString combinedLabel READ combinedLabel NOTIFY changed)
+    Q_PROPERTY(QStringList combinedOptions READ combinedOptions CONSTANT)
     Q_PROPERTY(double earthOffset READ earthOffset NOTIFY viewChanged)
     Q_PROPERTY(double skyOffset READ skyOffset NOTIFY changed)
-    QSettings settings{"Daylight","Daylight"};
+    QSettings settings{"EarthSky","EarthSky"};
     // The instant currently rendered on the map.
     QDateTime displayedInstant;
     // "Live" means the map tracks wall-clock time and auto-refreshes periodically.
@@ -291,8 +298,14 @@ class Sky : public QObject
     double currentEarthOffset=0;
     inline static constexpr std::array<qint64,8> rotationRates={60,300,900,1800,3600,7200,14400,28800};
     int rotationSpeedIndex=5;
+    qint64 rotationPlaybackRate=7200;
+    int rotationDirection=1;
+    bool mEarthMode=false;
+    int mCombinedIndex=4;
+    inline static constexpr std::array<qint64,11> combinedIntervals={60000,300000,900000,1800000,3600000,7200000,14400000,21600000,28800000,86164090,86400000};
+    inline static constexpr std::array<const char*,11> combinedLabels={"1 Minute","5 Minutes","15 Minutes","30 Minutes","1 Hour","2 Hours","4 Hours","6 Hours","8 Hours","1 Sidereal Day","24 Hours"};
     QDateTime rotationInstant() const {
-        if(rotationTimer.isActive()) return rotationStart.addMSecs(rotationClock.elapsed()*rotationSpeed());
+        if(rotationTimer.isActive()) return rotationStart.addMSecs(rotationClock.elapsed()*rotationPlaybackRate*rotationDirection);
         if(animationTimer.isActive()) {
             // Daily playback is advanced only by timer ticks, so a late/early
             // callback cannot repeat or skip a date at a rounding boundary.
@@ -305,6 +318,14 @@ class Sky : public QObject
         if(!inertialView) return 0;
         double turns=(siderealDegrees(instant)-referenceSidereal)/360.0;
         return turns-std::floor(turns);
+    }
+    void useEarthFixedFrame() {
+        if(!inertialView)return;
+        const double turn=currentEarthOffset;
+        inertialView=false;currentEarthOffset=0;
+        // Rebase camera coordinates by the same amount, preserving the visible Earth.
+        emit frameRebased(turn);
+        emit viewChanged();
     }
     QString runningUnit;
     int runningDirection=0;
@@ -319,7 +340,7 @@ class Sky : public QObject
         return 0;
     }
     bool advanceTime(int direction,const QString& unit) {
-        const auto delta=unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
+        const auto delta=unit=="combined" ? combinedIntervals[mCombinedIndex] : unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
         if((direction!=-1 && direction!=1) || !delta) return false;
         const auto target=displayedInstant.addMSecs(direction*delta);
         // Keep all navigation within Astronomy Engine's supported practical range.
@@ -338,6 +359,16 @@ class Sky : public QObject
     }
 public:
     Sky() {
+        if(!settings.value("migration/daylightImported",false).toBool()) {
+            QSettings legacy("Daylight","Daylight");
+            const auto keys=legacy.allKeys();
+            if(legacy.status()==QSettings::NoError) {
+                for(const auto& key:keys)
+                    if(!settings.contains(key))settings.setValue(key,legacy.value(key));
+                settings.setValue("migration/daylightImported",true);
+                settings.sync();
+            }
+        }
         rotationTimer.setInterval(33);
         rotationTimer.setTimerType(Qt::PreciseTimer);
         QObject::connect(&rotationTimer,&QTimer::timeout,this,[this] {
@@ -388,6 +419,7 @@ public:
         const auto held=rotationInstant();
         if(rotating()) { rotationStart=held; rotationClock.restart(); }
         rotationSpeedIndex=next;
+        if(rotating())rotationPlaybackRate=rotationSpeed();
         if(rotating()) renderTime(held); else emit changed();
         emit viewChanged();
     }
@@ -405,6 +437,42 @@ public:
         if(wasRotating || wasPlaying) renderTime(held);
         else if(wasStepping) emit changed();
     }
+    bool earthMode() const { return mEarthMode; }
+    int combinedIndex() const { return mCombinedIndex; }
+    QString combinedLabel() const { return QString::fromLatin1(combinedLabels[mCombinedIndex]); }
+    QStringList combinedOptions() const { QStringList result;for(const auto* label:combinedLabels)result.append(QString::fromLatin1(label));return result; }
+    void useSkyFixedFrame() {
+        if(!inertialView) { referenceSidereal=siderealDegrees(displayedInstant);inertialView=true;currentEarthOffset=0; }
+    }
+    Q_INVOKABLE void setEarthMode(bool earth) {
+        if(mEarthMode==earth)return;
+        stopAnimation();mEarthMode=earth;
+        if(earth)useSkyFixedFrame();else useEarthFixedFrame();
+        emit changed();emit viewChanged();
+    }
+    Q_INVOKABLE void selectCombinedInterval(int index) {
+        if(index<0 || index>=int(combinedIntervals.size()) || index==mCombinedIndex)return;
+        const bool playing=rotationTimer.isActive() || animationTimer.isActive();const int direction=runningDirection;
+        stopAnimation();mCombinedIndex=index;
+        if(playing && direction)navigate(direction,true,false);else emit changed();
+    }
+    Q_INVOKABLE void navigate(int direction,bool animate,bool initialStep=true) {
+        if(direction!=-1 && direction!=1)return;
+        if(animate && runningDirection==direction && (rotationTimer.isActive() || animationTimer.isActive())) {stopAnimation();return;}
+        stopAnimation();
+        if(mEarthMode)useSkyFixedFrame();else useEarthFixedFrame();
+        if(!animate){advanceTime(direction,"combined");return;}
+        liveMode=false;runningDirection=direction;runningUnit="combined";playbackStep=combinedIntervals[mCombinedIndex];
+        if(mEarthMode && playbackStep<86164090) {
+            rotationPlaybackRate=playbackStep/1000;rotationDirection=direction;
+            rotationStart=displayedInstant;rotationClock.restart();ephemerisClock.restart();rotationTimer.start();
+            currentEarthOffset=offsetAt(displayedInstant);emit changed();emit viewChanged();
+        } else {
+            animationTimer.setInterval(playbackStep>=86164090?500:100);
+            navigationStart=displayedInstant;navigationClock.restart();animationTimer.start();
+            if(initialStep && playbackStep>=86164090){if(!advanceTime(direction,"combined"))stopAnimation();}else emit changed();
+        }
+    }
     Q_INVOKABLE void toggleEarthRotation() {
         if(rotating()) { stopAnimation(); return; }
         stopAnimation();
@@ -412,18 +480,20 @@ public:
         if(!inertialView) { referenceSidereal=siderealDegrees(displayedInstant); inertialView=true; }
         liveMode=false;
         rotationStart=displayedInstant;
+        rotationPlaybackRate=rotationSpeed();rotationDirection=1;
         rotationClock.restart(); ephemerisClock.restart(); rotationTimer.start();
         currentEarthOffset=offsetAt(displayedInstant);
         emit changed(); emit viewChanged();
     }
     Q_INVOKABLE void stepTime(int direction,const QString& unit) {
         if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
-        stopAnimation(); advanceTime(direction,unit);
+        stopAnimation(); useEarthFixedFrame(); advanceTime(direction,unit);
     }
     Q_INVOKABLE void toggleAnimation(int direction,const QString& unit,bool initialStep=true) {
         if((direction!=-1 && direction!=1) || (unit!="navigation" && !stepMilliseconds(unit))) return;
         if(runningDirection==direction && runningUnit==unit) { stopAnimation(); return; }
         stopAnimation();
+        useEarthFixedFrame();
         runningDirection=direction; runningUnit=unit;
         liveMode=false;
         playbackStep=unit=="navigation" ? navigationStep() : stepMilliseconds(unit);
@@ -434,7 +504,7 @@ public:
         else emit changed();
     }
     Q_INVOKABLE bool layerVisible(const QString& key) const {
-        const bool defaultVisible=key!="planets" && key!="constellations" && key!="latitudeLines";
+        const bool defaultVisible=key!="planets" && key!="constellations" && key!="latitudeLines" && key!="allConstellations";
         return settings.value("visibility/"+key,defaultVisible).toBool();
     }
     Q_INVOKABLE void setLayerVisible(const QString& key,bool visible) {
@@ -448,7 +518,7 @@ public:
     Q_INVOKABLE void stepDay(int direction) { stepTime(direction,"day"); }
     Q_INVOKABLE void goToNow() {
         stopAnimation();
-        inertialView=false;
+        inertialView=false;mEarthMode=false;
         liveMode=true; renderTime(QDateTime::currentDateTimeUtc());
     }
     bool live() const { return liveMode; }
@@ -484,6 +554,7 @@ public:
 signals:
     void changed();
     void viewChanged();
+    void frameRebased(double turns);
 };
 class Images : public QQuickImageProvider
 {
@@ -493,7 +564,7 @@ public:
     Images(Sky* s):QQuickImageProvider(QQuickImageProvider::Image),sky(s) {}
     QImage requestImage(const QString &id,QSize *size,const QSize& requestedSize) override {
         if(id.startsWith("zodiac")) {
-            auto image=zodiacImage(sky->e.zodiac,requestedSize.isValid()?requestedSize:QSize(1280,640),!id.contains("/no-labels/"));
+            auto image=zodiacImage(sky->e.zodiac,requestedSize.isValid()?requestedSize:QSize(1280,640),!id.contains("/no-labels/"),id.contains("/all/"));
             if(size) *size=image.size();
             return image;
         }
@@ -501,6 +572,85 @@ public:
         if(size) *size=image.size(); return image;
     }
 };
+// Orthographic Earth and one common celestial shell. Distances are illustrative.
+class GlobeView : public QQuickPaintedItem {
+    Q_OBJECT
+    Q_PROPERTY(QObject* sky READ sky WRITE setSky NOTIFY optionsChanged)
+    Q_PROPERTY(QVariantMap layers READ layers WRITE setLayers NOTIFY optionsChanged)
+    Q_PROPERTY(bool horizonActive MEMBER mHorizon NOTIFY optionsChanged)
+    Q_PROPERTY(QPointF observer MEMBER mObserver NOTIFY optionsChanged)
+    Q_PROPERTY(double yaw READ yaw WRITE setYaw NOTIFY viewChanged)
+    Q_PROPERTY(double pitch READ pitch WRITE setPitch NOTIFY viewChanged)
+    Q_PROPERTY(double zoom READ zoom WRITE setZoom NOTIFY viewChanged)
+    Sky* mSky=nullptr;
+    QVariantMap mLayers;
+    bool mHorizon=false,mDragging=false,mMoved=false,mDirty=true;
+    QPointF mObserver,mPress;
+    double mYaw=0,mPitch=15,mZoom=1,mPressYaw=0,mPressPitch=0;
+    double mCy=1,mSy=0,mCp=std::cos(rad(15)),mSp=std::sin(rad(15));
+    QImage mGround;
+    QRectF mGroundRect;
+    QTimer mSettle;
+    struct V { double x,y,z; };
+    static constexpr double shell=1.28;
+    double radius() const { return std::min(width(),height())*.35*mZoom; }
+    V direction(double lon,double lat) const {
+        return {std::cos(rad(lat))*std::sin(rad(lon)),std::sin(rad(lat)),std::cos(rad(lat))*std::cos(rad(lon))};
+    }
+    V view(V v) const;
+    QPointF pixel(V v) const { return {width()/2+v.x*radius(),height()/2-v.y*radius()}; }
+    bool layer(const char* name) const { return mLayers.value(name,false).toBool(); }
+    double skyFade(Position p) const { return !mHorizon || altitudeSine(p.lat,p.lon,{mObserver.y(),mObserver.x()})>=0 ? 1.0 : 0.0; }
+    void invalidate() { mDirty=true;update(); }
+    void paintSky(QPainter*,bool front);
+protected:
+    void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+    void wheelEvent(QWheelEvent*) override;
+    void geometryChange(const QRectF& now,const QRectF& before) override { QQuickPaintedItem::geometryChange(now,before);invalidate(); }
+public:
+    GlobeView(QQuickItem* parent=nullptr):QQuickPaintedItem(parent) {
+        setAcceptedMouseButtons(Qt::LeftButton);setAntialiasing(true);setCursor(Qt::OpenHandCursor);
+        connect(this,&GlobeView::optionsChanged,this,[this]{invalidate();});
+        mSettle.setSingleShot(true);mSettle.setInterval(120);
+        connect(&mSettle,&QTimer::timeout,this,[this]{invalidate();});
+    }
+    QObject* sky() const { return mSky; }
+    void setSky(QObject* object) {
+        if(mSky==object) return;
+        if(mSky) disconnect(mSky,nullptr,this,nullptr);
+        mSky=qobject_cast<Sky*>(object);
+        if(mSky) {
+            connect(mSky,&Sky::changed,this,[this]{invalidate();});
+            connect(mSky,&Sky::viewChanged,this,[this]{invalidate();});
+        }
+        emit optionsChanged();
+    }
+    QVariantMap layers() const { return mLayers; }
+    void setLayers(const QVariantMap& layers) { if(mLayers==layers)return;mLayers=layers;emit optionsChanged(); }
+    double yaw() const { return mYaw; }
+    double pitch() const { return mPitch; }
+    double zoom() const { return mZoom; }
+    void setYaw(double value) { value=wrap(value);if(qFuzzyCompare(value+181,mYaw+181))return;mYaw=value;mCy=std::cos(rad(value));mSy=std::sin(rad(value));invalidate();emit viewChanged(); }
+    void setPitch(double value) { value=std::clamp(value,-90.0,90.0);if(value==mPitch)return;mPitch=value;mCp=std::cos(rad(value));mSp=std::sin(rad(value));invalidate();emit viewChanged(); }
+    void setZoom(double value) { value=std::clamp(value,.65,6.0);if(value==mZoom)return;mZoom=value;invalidate();emit viewChanged(); }
+    Q_INVOKABLE void fitView() { setYaw(0);setPitch(15);setZoom(1); }
+    Q_INVOKABLE void centerOn(double lon,double lat) { setYaw(lon+(mSky?mSky->earthOffset()*360:0));setPitch(lat); }
+    Q_INVOKABLE QVariantMap project(double lon,double lat,double distance=1) const {
+        auto p=view(direction(lon,lat));p.x*=distance;p.y*=distance;p.z*=distance;
+        auto screen=pixel(p);bool hidden=p.z<0 && p.x*p.x+p.y*p.y<1;
+        return {{"x",screen.x()},{"y",screen.y()},{"z",p.z},{"occluded",hidden}};
+    }
+    Q_INVOKABLE QVariantMap pick(double x,double y) const;
+    void paint(QPainter*) override;
+signals:
+    void optionsChanged();
+    void viewChanged();
+    void locationSelected(double longitude,double latitude);
+};
+#include "globe.inc"
+
 bool selfTest() {
     auto date=[](const char* s){return QDateTime::fromString(QString::fromLatin1(s),Qt::ISODate);};
     auto equinox=calculate(date("2026-03-20T14:46:00Z"));
@@ -518,7 +668,11 @@ bool selfTest() {
             sample.bodies[5].distance>sample.bodies[0].distance && sample.bodies[6].distance>sample.bodies[5].distance;
     }
     // Catalog integrity, Earth rotation, true ecliptic, and date-line geometry.
-    for(const auto& figure : zodiacCatalog())
+    ok=ok && zodiacCatalog().size()==12 && zodiacCatalog(true).size()==88;
+    QStringList names;
+    for(const auto& figure : zodiacCatalog(true)) { ok=ok && !names.contains(figure.name); names.append(figure.name); }
+    ok=ok && names.contains("Orion") && names.contains("Ursa Major") && names.contains("Ophiuchus") && names.contains("Serpens");
+    for(const auto& figure : zodiacCatalog(true))
         for(const auto& star : figure.stars)
             ok=ok && std::isfinite(star.ra) && std::isfinite(star.dec) &&
                 std::abs(star.ra)<=180 && std::abs(star.dec)<=90 && std::isfinite(star.magnitude);
@@ -568,7 +722,37 @@ bool selfTest() {
         navigation.stepTime(1,"navigation");ok=ok && held.msecsTo(navigation.displayedUtc())==intervals[i];
         navigation.stepTime(-1,"navigation");ok=ok && held==navigation.displayedUtc();
     }
-    qInfo()<<"Astronomy, twilight, lunar phase, zodiac and navigation tests:"<<(ok?"PASS":"FAIL");
+    navigation.toggleEarthRotation(); navigation.stopAnimation();
+    auto beforeFrameChange=navigation.displayedUtc();
+    navigation.stepTime(1,"hour");
+    ok=ok && !navigation.skyFixed() && navigation.earthOffset()==0 && beforeFrameChange.msecsTo(navigation.displayedUtc())==3600000;
+    navigation.toggleEarthRotation(); navigation.stopAnimation(); navigation.selectInterval(3);
+    beforeFrameChange=navigation.displayedUtc();navigation.toggleAnimation(-1,"navigation");
+    ok=ok && !navigation.skyFixed() && navigation.earthOffset()==0 && navigation.displayedUtc()==beforeFrameChange && navigation.animationDirection()==-1;
+    navigation.stopAnimation();
+    Sky combinedCheck;combinedCheck.goToNow();
+    ok=ok && combinedCheck.combinedOptions().size()==11 && combinedCheck.combinedIndex()==4 && !combinedCheck.earthMode();
+    const qint64 combinedSteps[]={60000,300000,900000,1800000,3600000,7200000,14400000,21600000,28800000,86164090,86400000};
+    for(bool earth:{false,true}) {
+        combinedCheck.setEarthMode(earth);
+        for(int i=0;i<11;++i) {
+            combinedCheck.selectCombinedInterval(i);auto held=combinedCheck.displayedUtc();
+            combinedCheck.navigate(1,false);ok=ok && held.msecsTo(combinedCheck.displayedUtc())==combinedSteps[i] && combinedCheck.skyFixed()==earth;
+            combinedCheck.navigate(-1,false);ok=ok && combinedCheck.displayedUtc()==held;
+        }
+    }
+    combinedCheck.selectCombinedInterval(4);combinedCheck.navigate(-1,true);
+    ok=ok && combinedCheck.rotating() && combinedCheck.animationDirection()==-1;
+    combinedCheck.navigate(-1,true);ok=ok && !combinedCheck.rotating() && combinedCheck.animationDirection()==0;
+    combinedCheck.goToNow();ok=ok && !combinedCheck.earthMode() && !combinedCheck.skyFixed() && combinedCheck.live();
+    GlobeView globeCheck; globeCheck.setWidth(800); globeCheck.setHeight(600);
+    for(auto point : {QPointF(0,15),QPointF(25,35),QPointF(-30,-10)}) {
+        auto projected=globeCheck.project(point.x(),point.y());
+        auto inverse=globeCheck.pick(projected["x"].toDouble(),projected["y"].toDouble());
+        ok=ok && inverse["valid"].toBool() && std::abs(inverse["longitude"].toDouble()-point.x())<1e-7 && std::abs(inverse["latitude"].toDouble()-point.y())<1e-7;
+    }
+    ok=ok && !globeCheck.pick(0,0)["valid"].toBool() && globeCheck.project(180,-15,1.28)["occluded"].toBool() && !globeCheck.project(0,15,1.28)["occluded"].toBool();
+    qInfo()<<"Astronomy, twilight, lunar phase, zodiac, navigation and globe tests:"<<(ok?"PASS":"FAIL");
     return ok;
 }
 int main(int argc, char **argv)
@@ -576,18 +760,22 @@ int main(int argc, char **argv)
     QElapsedTimer startup;
     startup.start();
     QGuiApplication app(argc, argv);
-    app.setApplicationName("Daylight");
-    app.setWindowIcon(QIcon(":/qt/qml/Daylight/assets/daylight.ico"));
+    app.setApplicationName("EarthSky");
+    app.setApplicationDisplayName("Earth & Sky");
+    app.setOrganizationName("EarthSky");
+    app.setWindowIcon(QIcon(":/qt/qml/EarthSky/assets/earth-and-sky.ico"));
     if (app.arguments().contains("--self-test"))
         return selfTest() ? 0 : 1;
     Sky sky;
     sky.refresh();
+    qmlRegisterType<GlobeView>("EarthSky.Globe",1,0,"GlobeView");
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("sky",&sky);
     engine.addImageProvider("earth",new Images(&sky));
-    engine.loadFromModule("Daylight","Main");
+    engine.loadFromModule("EarthSky","Main");
     if(engine.rootObjects().isEmpty()) return 1;
     auto window=qobject_cast<QQuickWindow*>(engine.rootObjects().first());
+    if(app.arguments().contains("--globe")) window->setProperty("globeMode",true);
     bool first=true;
     QObject::connect(window,&QQuickWindow::frameSwapped,&app,[&] {
         if(first) { qInfo()<<"First frame:"<<startup.elapsed()<<"ms"; first=false; }

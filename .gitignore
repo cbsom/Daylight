@@ -1,4 +1,4 @@
-# Generated builds (source lives under outputs/Daylight/source).
+# Generated builds (source lives under outputs/Earth-and-Sky/source).
 [Bb]uild/
 build-*/
 cmake-build-*/
@@ -17,10 +17,10 @@ build-qt68/
 !/work/install_qt.py
 
 # Packaged binaries and generated previews; preserve source and documentation.
-/outputs/Daylight-Windows*.zip
-/outputs/Daylight/app/
-/outputs/Daylight/preview.png
-/outputs/Daylight/VALIDATION.md
+/outputs/Earth-and-Sky-Windows*.zip
+/outputs/Earth-and-Sky/app/
+/outputs/Earth-and-Sky/preview.png
+/outputs/Earth-and-Sky/VALIDATION.md
 
 # CMake-generated state. Shared CMakePresets.json remains trackable.
 CMakeCache.txt

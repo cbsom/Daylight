@@ -12,13 +12,12 @@ struct ZodiacFigure {
     std::vector<ZodiacStar> stars;
     std::vector<std::pair<int,int>> lines;
 };
-const std::vector<ZodiacFigure>& zodiacCatalog() {
-    static const auto catalog=[] {
-        QFile file(":/qt/qml/Daylight/data/zodiac.json");
-        if(!file.open(QIODevice::ReadOnly)) qFatal("Zodiac catalog is missing");
+std::vector<ZodiacFigure> loadConstellationCatalog(const QString& path,int expected) {
+        QFile file(path);
+        if(!file.open(QIODevice::ReadOnly)) qFatal("Constellation catalog is missing");
         QJsonParseError error;
         auto document=QJsonDocument::fromJson(file.readAll(),&error);
-        if(error.error!=QJsonParseError::NoError) qFatal("Invalid zodiac catalog JSON");
+        if(error.error!=QJsonParseError::NoError) qFatal("Invalid constellation catalog JSON");
         std::vector<ZodiacFigure> result;
         for(const auto& value : document.object()["constellations"].toArray()) {
             auto entry=value.toObject();
@@ -29,19 +28,29 @@ const std::vector<ZodiacFigure>& zodiacCatalog() {
             }
             for(const auto& lineValue : entry["lines"].toArray()) {
                 auto line=lineValue.toArray();
-                if(line.size()!=2) qFatal("Invalid zodiac connection");
+                if(line.size()!=2) qFatal("Invalid constellation connection");
                 int a=line[0].toInt(-1),b=line[1].toInt(-1);
                 if(a<0 || b<0 || a>=int(figure.stars.size()) || b>=int(figure.stars.size()))
                     qFatal("Zodiac connection references an invalid star");
                 figure.lines.emplace_back(a,b);
             }
-            if(figure.name.isEmpty() || figure.stars.empty() || figure.lines.empty()) qFatal("Empty zodiac figure");
+            if(figure.name.isEmpty() || figure.stars.empty() || figure.lines.empty()) qFatal("Empty constellation figure");
             result.push_back(std::move(figure));
         }
-        if(result.size()!=12) qFatal("Expected twelve zodiac figures");
+        if(int(result.size())!=expected) qFatal("Unexpected constellation count");
+        return result;
+}
+const std::vector<ZodiacFigure>& zodiacCatalog(bool all=false) {
+    static const auto zodiac=loadConstellationCatalog(":/qt/qml/EarthSky/data/zodiac.json",12);
+    if(!all) return zodiac;
+    // The zodiac stays first, preserving its existing frame indexes and rendering.
+    static const auto complete=[] {
+        auto result=zodiac;
+        auto others=loadConstellationCatalog(":/qt/qml/EarthSky/data/constellations.json",76);
+        result.insert(result.end(),others.begin(),others.end());
         return result;
     }();
-    return catalog;
+    return complete;
 }
 struct ZodiacFrame {
     std::vector<std::vector<Position>> figures;
@@ -56,7 +65,7 @@ ZodiacFrame calculateZodiac(astro_time_t time) {
     ZodiacFrame frame;
     auto rotation=Astronomy_Rotation_EQJ_EQD(&time);
     double sidereal=Astronomy_SiderealTime(&time);
-    for(const auto& figure : zodiacCatalog()) {
+    for(const auto& figure : zodiacCatalog(true)) {
         std::vector<Position> points;
         for(const auto& star : figure.stars) {
             // Reuse one library slot sequentially; there is no eight-star catalog limit.
@@ -97,14 +106,14 @@ Position interpolateSky(Position a,Position b,double fraction) {
     double z=(1-fraction)*std::sin(rad(a.lat))+fraction*std::sin(rad(b.lat));
     return {std::atan2(z,std::hypot(x,y))*180/pi,std::atan2(y,x)*180/pi};
 }
-QImage zodiacImage(const ZodiacFrame& frame,QSize size,bool showLabels=true) {
+QImage zodiacImage(const ZodiacFrame& frame,QSize size,bool showLabels=true,bool showAll=false) {
     QImage image(size,QImage::Format_ARGB32_Premultiplied); image.fill(Qt::transparent);
     QPainter painter(&image); painter.setRenderHint(QPainter::Antialiasing);
     // Widths and dots are in display pixels, so enlarging the map stays restrained.
     painter.setPen(QPen(QColor(166,166,200,65),.65));
     for(size_t i=1;i<frame.ecliptic.size();++i)
         drawWrappedSegment(painter,size,frame.ecliptic[i-1],frame.ecliptic[i]);
-    const auto& catalog=zodiacCatalog();
+    const auto& catalog=zodiacCatalog(showAll);
     QFont font("Segoe UI"); font.setPixelSize(9); font.setWeight(QFont::Medium);
     painter.setFont(font);
     for(size_t i=0;i<catalog.size();++i) {
@@ -112,8 +121,11 @@ QImage zodiacImage(const ZodiacFrame& frame,QSize size,bool showLabels=true) {
         painter.setPen(QPen(QColor(163,169,177,110),.8));
         for(auto [a,b] : figure.lines) {
             auto previous=points[a];
-            for(int step=1;step<=16;++step) {
-                auto next=interpolateSky(points[a],points[b],step/16.0);
+            const double cosine=std::sin(rad(points[a].lat))*std::sin(rad(points[b].lat))+std::cos(rad(points[a].lat))*std::cos(rad(points[b].lat))*std::cos(rad(points[b].lon-points[a].lon));
+            const double angle=std::acos(std::clamp(cosine,-1.0,1.0))*180/pi;
+            const int segments=std::clamp(int(std::ceil(std::max(angle/2.0,std::abs(wrap(points[b].lon-points[a].lon))/5.0))),1,32);
+            for(int step=1;step<=segments;++step) {
+                auto next=interpolateSky(points[a],points[b],double(step)/segments);
                 drawWrappedSegment(painter,size,previous,next); previous=next;
             }
         }
@@ -131,9 +143,11 @@ QImage zodiacImage(const ZodiacFrame& frame,QSize size,bool showLabels=true) {
         // A restrained dark outline preserves grey text over bright terrain.
         double advance=painter.fontMetrics().horizontalAdvance(figure.name);
         for(int copy=-1;copy<=1;++copy) {
+            const double labelX=center+copy*size.width()-advance/2;
+            if(labelX+advance< -3 || labelX>size.width()+3) continue;
             QPainterPath label;
-            label.addText(QPointF(center+copy*size.width()-advance/2,
-                                 bottom+3+painter.fontMetrics().ascent()),font,figure.name);
+            label.addText(QPointF(labelX,
+                                 std::min(double(size.height()-3),bottom+3+painter.fontMetrics().ascent())),font,figure.name);
             painter.strokePath(label,QPen(QColor(8,15,24,220),2.5,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
             painter.fillPath(label,QColor(180,186,194));
         }
