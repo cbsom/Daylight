@@ -88,7 +88,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist
-          cp build/<your-binary-name> dist/
+          cp build/Earth-and-Sky dist/
           tar -C dist -czf Earth-and-Sky-linux-${{ matrix.c_compiler }}.tar.gz .
 
       - name: Package binaries (Windows)
@@ -96,7 +96,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "build/Release/<your-binary-name>.exe" "dist/"
+          Copy-Item "build/Release/Earth-and-Sky.exe" "dist/"
           Compress-Archive -Path "dist/*" -DestinationPath "Earth-and-Sky-windows-${{ matrix.c_compiler }}.zip" -Force
 
       - name: Upload release artifact
