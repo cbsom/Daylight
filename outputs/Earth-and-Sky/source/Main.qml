@@ -13,6 +13,13 @@ Window {
     color: "#080f18"
     property bool globeMode: false
     readonly property var skyModel: sky
+    function showEarthFrom(body) {
+        mapViewport.horizonActive = false
+        mapViewport.releaseFollow()
+        if (body === "Moon") moonToggle.checked = true
+        window.globeMode = true
+        globe.centerOnBody(body)
+    }
     onClosing: sky.stopAnimation()
     onVisibleChanged: { if (!visible) sky.stopAnimation() }
     Shortcut { sequence: "Escape"; enabled: !intervalMenu.visible; onActivated: sky.stopAnimation() }
@@ -108,7 +115,7 @@ Window {
             // Hit-test the nearer, visually topmost bodies first.
             for (let i = markers.length - 1; i >= 0; --i) {
                 const marker = markers[i]
-                const shown = marker.name === "Sun" ? sunToggle.checked : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
+                const shown = marker.name === "Sun" ? true : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
                 if (!shown) continue
                 const x = width / 2 + wrapDelta(marker.x + sky.skyOffset - cameraX) * map.width
                 const y = height / 2 + (marker.y - boundedCenterY) * map.height
@@ -170,7 +177,7 @@ Window {
                         delegate: Item {
                             required property int index
                             readonly property var marker: sky.markers[index]
-                            visible: marker.name === "Sun" ? sunToggle.checked
+                            visible: marker.name === "Sun" ? true
                                      : marker.name === "Moon" ? moonToggle.checked : planetsToggle.checked
                             x: marker.x * map.width
                             y: marker.y * map.height
@@ -351,7 +358,7 @@ Window {
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: footer.top
         visible: window.globeMode
         sky: window.skyModel
-        layers: ({sun: sunToggle.checked, moon: moonToggle.checked, planets: planetsToggle.checked,
+        layers: ({sun: true, moon: moonToggle.checked, planets: planetsToggle.checked,
                   zodiac: constellationsToggle.checked, allConstellations: allConstellationsToggle.checked,
                   latitudeLines: latitudeLinesToggle.checked, labels: labelsToggle.checked})
         horizonActive: mapViewport.horizonActive
@@ -690,7 +697,6 @@ Window {
             anchors.rightMargin: footer.sideMargin
             y: footer.singleRow ? footer.verticalPadding + 32 : timeControls.y + timeControls.height + 20
             spacing: window.width < 850 ? 12 : 20
-            VisibilityToggle { id: sunToggle; label: "Sun"; settingsKey: "sun" }
             VisibilityToggle { id: moonToggle; label: "Moon"; settingsKey: "moon" }
             VisibilityToggle { id: planetsToggle; label: "Planets"; settingsKey: "planets" }
             VisibilityToggle { id: constellationsToggle; objectName: "zodiacToggle"; label: "Zodiac"; settingsKey: "constellations" }
@@ -748,6 +754,32 @@ Window {
                         Keys.onReturnPressed: intervalMenu.visible = !intervalMenu.visible
                     }
                     DirectionGlobeButton { direction: 1 }
+                }
+            }
+            Item {
+                width: 104; height: 65
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    y: 9; text: "Show Earth from:"
+                    font.family: "Segoe UI"; font.pixelSize: 10; color: "#8197aa"
+                }
+                Row {
+                    y: 32; spacing: 4
+                    Repeater {
+                        model: ["Sun", "Moon"]
+                        Rectangle {
+                            required property string modelData
+                            width: 50; height: 32; radius: 6
+                            color: "#121f2b"; border.color: "#2a3d4c"
+                            TimeAction {
+                                anchors.fill: parent
+                                objectName: modelData === "Sun" ? "earthFromSunButton" : "earthFromMoonButton"
+                                label: modelData
+                                description: "Show the globe with the " + modelData + " centered; drag to turn afterwards"
+                                onTriggered: window.showEarthFrom(modelData)
+                            }
+                        }
+                    }
                 }
             }
             Rectangle {

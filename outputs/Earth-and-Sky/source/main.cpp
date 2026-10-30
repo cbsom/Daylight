@@ -637,6 +637,12 @@ public:
     void setZoom(double value) { value=std::clamp(value,.65,6.0);if(value==mZoom)return;mZoom=value;invalidate();emit viewChanged(); }
     Q_INVOKABLE void fitView() { setYaw(0);setPitch(15);setZoom(1); }
     Q_INVOKABLE void centerOn(double lon,double lat) { setYaw(lon+(mSky?mSky->earthOffset()*360:0));setPitch(lat); }
+    Q_INVOKABLE void centerOnBody(const QString& name) {
+        if(!mSky || (name!="Sun" && name!="Moon"))return;
+        const auto point=name=="Sun"?mSky->e.sun:mSky->e.moon;
+        setYaw(point.lon+mSky->skyOffset()*360);
+        setPitch(point.lat);
+    }
     Q_INVOKABLE QVariantMap project(double lon,double lat,double distance=1) const {
         auto p=view(direction(lon,lat));p.x*=distance;p.y*=distance;p.z*=distance;
         auto screen=pixel(p);bool hidden=p.z<0 && p.x*p.x+p.y*p.y<1;
