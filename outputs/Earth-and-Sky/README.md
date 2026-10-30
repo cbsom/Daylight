@@ -26,14 +26,14 @@ Existing Daylight preferences are imported automatically on the first Earth & Sk
 
 ## Controls
 
-The footer has seven switches: **Sun**, **Moon**, **Planets**, **Zodiac**, **All constellations**,
+The Sun layer is always enabled; the Labels switch still controls its name. The footer has six switches: **Moon**, **Planets**, **Zodiac**, **All constellations**,
 **Latitude lines**, and **Labels**. Planets controls Mercury, Venus, Mars, Jupiter, and Saturn.
 Zodiac controls the twelve traditional zodiac figures and the ecliptic. All constellations includes all 88 figures without changing the saved Zodiac setting; turning it off restores that setting. Labels controls
-all celestial names. Hiding a body also hides its label; hiding the Sun marker
-does not hide daylight shading.
+all celestial names. Hiding the Moon or planets also hides their labels.
+Daylight shading remains active.
 
 Switch states are saved immediately and restored on the next launch. On the first
-launch, Sun, Moon, and Labels are on; Planets, Zodiac, All constellations, and Latitude lines are off. Existing saved choices are preserved. Linux stores preferences in
+launch, Moon and Labels are on; Planets, Zodiac, All constellations, and Latitude lines are off. Existing choices for these six switches are preserved; an older saved preference to hide the Sun is ignored. Linux stores preferences in
 `~/.config/EarthSky/EarthSky.conf` (or under `$XDG_CONFIG_HOME`); Windows uses the
 current user’s `Software\EarthSky\EarthSky` registry settings.
 
@@ -73,6 +73,10 @@ The footer shows **My Horizon**, **Latitude**, and **Longitude**, with N/S and E
 The horizon is geometric and does not account for terrain or atmospheric refraction. **Full map** exits this view while keeping the displayed time; **Reset** also returns to current live time and stops playback. The selected location, zoom, and horizon mode are not saved between launches.
 
 ### Globe view
+
+The footer's **Show Earth from:** group has two buttons, **Sun** and **Moon**. Either button switches to Globe view and turns the scene until the selected body is directly at the center of the view, as if you had dragged the globe there yourself. This uses the body position at the displayed time and works in both Rotate Sky and Rotate Earth modes.
+
+These actions preserve the displayed time, playback state, and globe zoom, exit My Horizon, and release any flat-map body following. **Moon** also enables the Moon layer if it was hidden; that switch choice is saved. Centering is a single action: you can drag or zoom afterward, and the camera does not continuously track the body as time advances.
 
 Use the **Flat map / Globe** selector at the upper left to switch views. In Globe view, **left-drag** to turn the scene and use the **scroll wheel** to zoom in or out. Earth and the surrounding celestial sphere use the same camera rotation, so dragging keeps their alignment intact. The globe uses an orthographic projection.
 

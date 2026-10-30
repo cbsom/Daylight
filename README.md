@@ -18,6 +18,7 @@ The application is built with **C++17 and Qt Quick/QML**. It runs locally, works
 ## Features
 
 - High-resolution flat world map and an interactive globe with a surrounding celestial sphere.
+- **Show Earth from: Sun / Moon** buttons to switch to the globe and center the selected body in one click.
 - Live daylight and night shading, with a gradual twilight transition.
 - A thin, subdued sunrise/sunset boundary.
 - Current Sun, Moon, Mercury, Venus, Mars, Jupiter, and Saturn positions over Earth.
@@ -25,7 +26,7 @@ The application is built with **C++17 and Qt Quick/QML**. It runs locally, works
 - All 88 constellations at their natural angular sizes, with faint stars, grey connections, small labels, and independent Zodiac and All constellations switches.
 - A subtle continuous ecliptic line. All star data is embedded for offline use.
 - Photographic Moon with a calculated phase shadow and a fixed orientation.
-- A compact footer with seven visibility switches whose settings survive restarts.
+- A compact footer with six visibility switches whose settings survive restarts; the Sun layer is always enabled.
 - Readable grey constellation labels with dark outlines, plus small body labels.
 - A responsive footer that remains on-screen while the map fills the area above it.
 - One unified Rotate Sky / Rotate Earth group with eleven intervals, mirrored globe step buttons, and forward/reverse playback, plus a Reset button for current time and the full map.
@@ -187,11 +188,10 @@ Generated builds, packaged binaries, and downloaded SDKs do not need to be commi
 
 ## Controls and saved preferences
 
-On the first launch, the Sun, Moon, and labels are visible. Planets, Zodiac, All constellations, and latitude lines start hidden. Saved switch choices take precedence on later launches. The seven footer switches control:
+The Sun layer is always enabled, including when an older saved preference hid it. The Labels switch still controls its name. On the first launch, Moon and Labels are on; Planets, Zodiac, All constellations, and Latitude lines are off. Saved choices for these six switches take precedence on later launches. The footer switches control:
 
 | Switch | Shows or hides |
 | --- | --- |
-| Sun | The Sun marker and its label |
 | Moon | The Moon marker and its label |
 | Planets | Mercury, Venus, Mars, Jupiter, and Saturn, with their labels |
 | Zodiac | The twelve traditional zodiac figures and the ecliptic, also shown whenever All constellations is on |
@@ -199,7 +199,7 @@ On the first launch, the Sun, Moon, and labels are visible. Planets, Zodiac, All
 | Latitude lines | Equator, both tropics (approximately 23.44 degrees north/south), and both polar circles (approximately 66.56 degrees north/south), in subtle green |
 | Labels | Sun, Moon, planet and constellation names, plus latitude degree labels, without hiding the markers or lines |
 
-All constellations includes the zodiac without changing its saved switch. Turning it off restores the Zodiac setting. The other switches are independent: hiding labels leaves the bodies and figures visible, and hiding a body also hides its label. Hiding the Sun marker does not turn off daylight shading.
+All constellations includes the zodiac without changing its saved switch. Turning it off restores the Zodiac setting. The other switches are independent: hiding labels leaves the bodies and figures visible, and hiding a body also hides its label. The Sun marker has no visibility switch; daylight shading remains active.
 
 The chosen switch states are saved immediately using Qt settings and restored on the next launch. On Linux they are stored in `~/.config/EarthSky/EarthSky.conf` (or under `$XDG_CONFIG_HOME`); Windows uses the current user’s `Software\EarthSky\EarthSky` registry settings. Existing Daylight preferences are imported automatically on the first Earth & Sky launch, without overwriting settings already saved under the new name. The old preferences are retained. Switches support mouse clicks, Tab navigation, and Space or Enter.
 
@@ -242,6 +242,10 @@ The footer shows **My Horizon**, **Latitude**, and **Longitude**, with N/S and E
 The horizon is geometric and does not account for terrain or atmospheric refraction. **Full map** exits this view while keeping the displayed time; **Reset** also returns to current live time and stops playback. The selected location, zoom, and horizon mode are not saved between launches.
 
 ### Globe view
+
+The footer's **Show Earth from:** group has two buttons, **Sun** and **Moon**. Either button switches to Globe view and turns the scene until the selected body is directly at the center of the view, as if you had dragged the globe there yourself. This uses the body position at the displayed time and works in both Rotate Sky and Rotate Earth modes.
+
+These actions preserve the displayed time, playback state, and globe zoom, exit My Horizon, and release any flat-map body following. **Moon** also enables the Moon layer if it was hidden; that switch choice is saved. Centering is a single action: you can drag or zoom afterward, and the camera does not continuously track the body as time advances.
 
 Use the **Flat map / Globe** selector at the upper left to switch views. In Globe view, **left-drag** to turn the scene and use the **scroll wheel** to zoom in or out. Earth and the surrounding celestial sphere use the same camera rotation, so dragging keeps their alignment intact. The globe uses an orthographic projection.
 
