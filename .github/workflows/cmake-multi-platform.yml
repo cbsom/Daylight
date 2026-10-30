@@ -83,3 +83,26 @@ jobs:
           ctest --test-dir build
           --build-config ${{ env.BUILD_TYPE }}
           --output-on-failure
+      
+      - name: Package binaries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist
+          cp build/Earth-and-Sky dist/
+          tar -C dist -czf Earth-and-Sky-linux-${{ matrix.c_compiler }}.tar.gz .
+
+      - name: Package binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "build/Release/Earth-and-Sky.exe" "dist/"
+          Compress-Archive -Path "dist/*" -DestinationPath "Earth-and-Sky-windows-${{ matrix.c_compiler }}.zip" -Force
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}-${{ matrix.c_compiler }}
+          path: |
+            *.tar.gz
+            *.zip
